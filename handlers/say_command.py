@@ -1,7 +1,13 @@
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
+import database
 
 async def say(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    role = await database.get_role(user_id)
+    if role not in ('admin', 'co_admin'):
+        await update.message.delete()
+        return
     text = update.message.text
     command_prefix = "/say "
     if not text.startswith(command_prefix):
