@@ -28,8 +28,11 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        # ۲. بررسی کلمات کلیدی و پاسخ زنده (هم برای پی‌وی و هم برای گروه‌های مجاز)
-        row = await conn.fetchrow('SELECT response FROM bot_keywords WHERE keyword = $1', incoming_text)
+        # ۲. بررسی کلمات کلیدی (مطابقت partial/contains, case-insensitive, طویل‌ترین کلمه اولویت دارد)
+        row = await conn.fetchrow(
+            'SELECT response FROM bot_keywords WHERE POSITION(LOWER(keyword) IN LOWER($1)) > 0 ORDER BY LENGTH(keyword) DESC LIMIT 1',
+            incoming_text
+        )
         if row:
             await update.message.reply_text(row['response'])
 
