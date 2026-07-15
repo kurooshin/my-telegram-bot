@@ -1,7 +1,10 @@
 # handlers/admin_panel.py
+import warnings
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import database
+
+warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*")
 
 ADD_KEYWORD, ADD_RESPONSE, ADD_CO_ID, ADD_CO_NAME = range(4)
 

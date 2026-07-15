@@ -14,28 +14,34 @@ logging.basicConfig(
 )
 
 def main():
-    # ۱. اجرای ساختار اولیه دیتابیس به صورت همگام در شروع برنامه
-    asyncio.run(database.init_db())
+    # ۱. ایجاد یک حلقه رویداد پایدار برای پشتیبانی از Python 3.14
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    # ۲. ساخت و پیکربندی اپلیکیشن ربات
+    # ۲. اجرای ساختار اولیه دیتابیس
+    loop.run_until_complete(database.init_db())
+
+    # ۳. ساخت و پیکربندی اپلیکیشن ربات
     application = Application.builder().token(config.TOKEN).build()
 
-    # ۳. ثبت هندلرها (ترتیب اهمیت دارد: ابتدا منوی مدیریت سپس هندلر متون عمومی)
+    # ۴. ثبت هندلرها (ترتیب اهمیت دارد: ابتدا منوی مدیریت سپس هندلر متون عمومی)
     application.add_handler(panel_conversation)
     application.add_handler(keyword_handler)
 
-    # ۴. دریافت پورت اختصاص داده شده توسط وب‌سرویس Render
+    # ۵. دریافت پورت اختصاص داده شده توسط وب‌سرویس Render
     port_number = int(os.environ.get("PORT", 8080))
     
     print("Bot setup completed. Launching Webhook...")
 
-    # ۵. اجرای نهایی تحت وب‌هووک هماهنگ با رندر
+    # ۶. اجرای نهایی تحت وب‌هووک هماهنگ با رندر
     application.run_webhook(
         listen="0.0.0.0",
         port=port_number,
         url_path=config.TOKEN,
         webhook_url=f"{config.WEBHOOK_URL}/{config.TOKEN}"
     )
+
+    loop.close()
 
 if __name__ == '__main__':
     main()
