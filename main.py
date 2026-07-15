@@ -15,8 +15,7 @@ logging.basicConfig(
 
 def main():
     # ۱. اجرای ساختار اولیه دیتابیس به صورت همگام در شروع برنامه
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(database.init_db())
+    asyncio.run(database.init_db())
 
     # ۲. ساخت و پیکربندی اپلیکیشن ربات
     application = Application.builder().token(config.TOKEN).build()

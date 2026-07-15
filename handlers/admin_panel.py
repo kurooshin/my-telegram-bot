@@ -137,5 +137,6 @@ panel_conversation = ConversationHandler(
         ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)]
     },
     fallbacks=[CommandHandler("cancel", cancel_action)],
+    per_message=False,
     allow_reentry=True
 )
