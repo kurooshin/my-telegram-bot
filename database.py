@@ -2,13 +2,21 @@
 import asyncpg
 import config
 
+_pool = None
+
+async def get_pool():
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(config.DB_URI, min_size=2, max_size=10, statement_cache_size=0)
+    return _pool
+
 async def get_db_connection():
-    """برقراری اتصال با دیتابیس Supabase با غیرفعال کردن کش پُولر"""
-    return await asyncpg.connect(config.DB_URI, statement_cache_size=0)
+    pool = await get_pool()
+    return await pool.acquire()
 
 async def init_db():
-    conn = await get_db_connection()
-    try:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS bot_keywords (
                 id SERIAL PRIMARY KEY,
@@ -37,13 +45,9 @@ async def init_db():
             VALUES ($1, 'admin', 'Owner') 
             ON CONFLICT (user_id) DO UPDATE SET role = 'admin'
         ''', config.ADMIN_ID)
-    finally:
-        await conn.close()
 
 async def get_role(user_id: int) -> str:
-    conn = await get_db_connection()
-    try:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
         return row['role'] if row else None
-    finally:
-        await conn.close()

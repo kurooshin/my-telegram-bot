@@ -84,6 +84,25 @@ async def display_beautiful_keywords(query, prefix=""):
     finally:
         await conn.close()
 
+async def display_beautiful_admins(query, prefix=""):
+    conn = await database.get_db_connection()
+    try:
+        rows = await conn.fetch('SELECT user_id, role, name FROM bot_admins ORDER BY role DESC, name ASC')
+        if not rows:
+            await query.edit_message_text(f"{prefix}ℹ️ هیچ ادمینی یافت نشد.")
+            return
+        text = f"{prefix}👑 **لیست ادمین‌ها:**\n\n"
+        keyboard = []
+        for i, r in enumerate(rows, 1):
+            role_emoji = "👑" if r['role'] == 'admin' else "👤"
+            text += f"{i}. {role_emoji} `{r['user_id']}` - {r['name']} ({r['role']})\n"
+            if r['role'] == 'co_admin':
+                keyboard.append([InlineKeyboardButton(f"🗑 حذف {r['name']}", callback_data=f"remad_{r['user_id']}")])
+        markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+    finally:
+        await conn.close()
+
 # --- بخش مکالمات افزودن کلمه و ادمین ---
 async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_kw'] = update.message.text.strip()

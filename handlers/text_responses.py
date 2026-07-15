@@ -10,8 +10,8 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     incoming_text = update.message.text.strip()
     
-    conn = await database.get_db_connection()
-    try:
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
         # ۱. مدیریت پیام‌های ارسالی در گروه‌ها و سوپرگروه‌ها
         if chat.type in ["group", "supergroup"]:
             try:
@@ -32,9 +32,6 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = await conn.fetchrow('SELECT response FROM bot_keywords WHERE keyword = $1', incoming_text)
         if row:
             await update.message.reply_text(row['response'])
-
-    finally:
-        await conn.close()
 
 # فعال روی تمام پیام‌های متنی به‌جز دستورات
 keyword_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_keywords)
