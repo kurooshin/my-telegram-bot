@@ -7,6 +7,7 @@ import config
 import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
+from handlers.say_command import say_handler
 
 # پیکربندی لاگر برای خطایابی در رندر
 logging.basicConfig(
@@ -26,6 +27,7 @@ def main():
 
     # ۴. ثبت هندلرها (ترتیب اهمیت دارد: ابتدا منوی مدیریت سپس هندلر متون عمومی)
     application.add_handler(panel_conversation)
+    application.add_handler(say_handler)
     application.add_handler(keyword_handler)
 
     # ۵. دریافت پورت اختصاص داده شده توسط وب‌سرویس Render
