@@ -8,7 +8,7 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     chat = update.effective_chat
-    incoming_text = update.message.text.strip()
+    incoming_text = database.normalize_persian(update.message.text.strip())
     
     pool = await database.get_pool()
     async with pool.acquire() as conn:

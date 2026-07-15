@@ -105,7 +105,7 @@ async def display_beautiful_admins(query, prefix=""):
 
 # --- بخش مکالمات افزودن کلمه و ادمین ---
 async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['temp_kw'] = update.message.text.strip()
+    context.user_data['temp_kw'] = database.normalize_persian(update.message.text.strip())
     await update.message.reply_text("💬 پاسخ کلمه را ارسال کنید:")
     return ADD_RESPONSE
 

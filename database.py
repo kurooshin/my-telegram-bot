@@ -2,6 +2,12 @@
 import asyncpg
 import config
 
+def normalize_persian(text: str) -> str:
+    text = text.replace('\u064A', '\u06CC')  # ي -> ی
+    text = text.replace('\u0643', '\u06A9')  # ك -> ک
+    text = text.replace('\u200C', '')        # ZWNJ
+    return text
+
 _pool = None
 
 async def get_pool():
