@@ -33,9 +33,12 @@ class BotWebhookHandler(tornado.web.RequestHandler):
 class GameHandler(tornado.web.RequestHandler):
     def get(self):
         game_path = os.path.join(os.path.dirname(__file__), 'web', 'game.html')
+        self.set_header('Content-Type', 'text/html; charset=utf-8')
+        self.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.set_header('Pragma', 'no-cache')
+        self.set_header('Expires', '0')
         with open(game_path, 'r', encoding='utf-8') as f:
             self.write(f.read())
-        self.set_header('Content-Type', 'text/html; charset=utf-8')
 
 class LeaderboardHandler(tornado.web.RequestHandler):
     async def get(self):
