@@ -3,8 +3,7 @@ import json
 import asyncio
 import logging
 import tornado.web
-import tornado.httpserver
-import tornado.ioloop
+import tornado.platform.asyncio
 from telegram import Update
 from telegram.ext import Application
 import config
@@ -19,20 +18,17 @@ logging.basicConfig(
 )
 
 class BotWebhookHandler(tornado.web.RequestHandler):
-    def initialize(self, application):
-        self.bot_app = application
+    def initialize(self, bot_app):
+        self.bot_app = bot_app
 
     async def post(self):
         try:
             body = json.loads(self.request.body)
             update = Update.de_json(body, self.bot_app.bot)
             await self.bot_app.process_update(update)
-            self.set_status(200)
-            self.write('ok')
         except Exception as e:
             logging.error(f"Webhook error: {e}")
-            self.set_status(200)
-            self.write('ok')
+        self.write('ok')
 
 class GameHandler(tornado.web.RequestHandler):
     def get(self):
@@ -60,18 +56,12 @@ class LeaderboardHandler(tornado.web.RequestHandler):
             score = int(body.get('score', 0))
             if user_id and score > 0:
                 await database.submit_score(user_id, user_name, score)
-            self.set_status(200)
-            self.write('ok')
         except Exception as e:
             logging.error(f"Score submit error: {e}")
-            self.set_status(200)
-            self.write('ok')
+        self.write('ok')
 
-def main():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(database.init_db())
+async def main():
+    await database.init_db()
 
     application = Application.builder().token(config.TOKEN).build()
     application.add_handler(panel_conversation)
@@ -79,35 +69,25 @@ def main():
     application.add_handler(game_handler)
     application.add_handler(keyword_handler)
 
-    port_number = int(os.environ.get("PORT", 8080))
+    await application.initialize()
+    await application.start()
 
-    webhook_path = f"/{config.TOKEN}"
+    port_number = int(os.environ.get("PORT", 8080))
     webhook_url = f"{config.WEBHOOK_URL}/{config.TOKEN}"
+    await application.bot.set_webhook(url=webhook_url)
 
     tornado_app = tornado.web.Application([
-        (webhook_path, BotWebhookHandler, dict(application=application)),
-        (r"/game", GameHandler),
-        (r"/api/leaderboard", LeaderboardHandler),
+        (f"/{config.TOKEN}", BotWebhookHandler, dict(bot_app=application)),
+        ("/game", GameHandler),
+        ("/api/leaderboard", LeaderboardHandler),
     ])
+    tornado_app.listen(port_number, "0.0.0.0")
 
-    server = tornado.httpserver.HTTPServer(tornado_app)
-    server.listen(port_number, "0.0.0.0")
-
-    async def startup():
-        await application.initialize()
-        await application.start()
-        await application.bot.set_webhook(url=webhook_url)
-        logging.info("Bot started and webhook set")
-
-    loop.run_until_complete(startup())
-    print("Bot and game server running...")
+    logging.info("Bot and game server running on port %d", port_number)
     try:
-        tornado.ioloop.IOLoop.current().start()
-    except KeyboardInterrupt:
-        pass
+        await asyncio.Event().wait()
     finally:
-        loop.run_until_complete(application.stop())
-        loop.close()
+        await application.stop()
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
