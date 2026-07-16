@@ -11,7 +11,7 @@ import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
-from handlers.game import game_handler
+from handlers.game import game_handler, leaderboard_handler, leaderboard_handler
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -67,6 +67,7 @@ async def main():
     application.add_handler(panel_conversation)
     application.add_handler(say_handler)
     application.add_handler(game_handler)
+    application.add_handler(leaderboard_handler)
     application.add_handler(keyword_handler)
 
     await application.initialize()

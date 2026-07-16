@@ -1,17 +1,30 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import ContextTypes, CommandHandler, filters
 import config
+import database
 
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game_url = f"{config.WEBHOOK_URL}/game"
     keyboard = [[InlineKeyboardButton("🐍 Play Snake", web_app=WebAppInfo(url=game_url))]]
     await update.message.reply_text(
         "🎮 **Snake Game**\n\n"
-        "Control the snake and eat the food!\n"
         "🖥 **Desktop:** WASD / Arrow Keys\n"
         "📱 **Mobile:** Swipe to move\n\n"
-        "Click the button below to open:",
+        "👇 Click below to play:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = await database.get_leaderboard()
+    if not rows:
+        await update.message.reply_text("🏆 No scores yet. Be the first!")
+        return
+    text = "🏆 **Snake Leaderboard**\n\n"
+    for i, r in enumerate(rows, 1):
+        medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+        name = (r['user_name'] or 'Player')[:20]
+        text += f"{medal} {name} — **{r['score']}**\n"
+    await update.message.reply_text(text)
+
 game_handler = CommandHandler("game", game_command)
+leaderboard_handler = CommandHandler("leaderboard", leaderboard_command)
