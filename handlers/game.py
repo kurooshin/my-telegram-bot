@@ -7,14 +7,17 @@ import database
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         game_url = f"{config.WEBHOOK_URL}/game"
+        chat_type = update.effective_chat.type
+        if chat_type in ("group", "supergroup"):
+            btn = {"text": "🐍 Play Snake", "url": game_url}
+        else:
+            btn = {"text": "🐍 Play Snake", "web_app": {"url": game_url}}
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="🎮 Snake Game\n\nDesktop: WASD / Arrow Keys | Space=Pause\nMobile: Swipe to move\n\nClick below to play:",
             api_kwargs={
                 "reply_markup": {
-                    "inline_keyboard": [[
-                        {"text": "🐍 Play Snake", "web_app": {"url": game_url}}
-                    ]]
+                    "inline_keyboard": [[btn]]
                 }
             }
         )
