@@ -93,8 +93,10 @@ const toast=document.getElementById('toast');
 let tg=null;
 try{if(window.Telegram&&window.Telegram.WebApp){tg=window.Telegram.WebApp;tg.expand()}}catch(e){}
 
-let userId='',userName='Player';
-if(tg){userId=tg.initDataUnsafe?.user?.id?.toString()||'';userName=tg.initDataUnsafe?.user?.first_name||'Player'}
+let userId=localStorage.getItem('snakeUserId')||'',userName=localStorage.getItem('snakeUserName')||'Player';
+if(tg){userId=tg.initDataUnsafe?.user?.id?.toString()||userId;userName=tg.initDataUnsafe?.user?.first_name||userName;localStorage.setItem('snakeUserId',userId);localStorage.setItem('snakeUserName',userName)}
+if(!userId){userId='anon_'+Date.now()+Math.random().toString(36).slice(2,6);localStorage.setItem('snakeUserId',userId)}
+if(!localStorage.getItem('snakeUserName')){const n=prompt('Enter your name for leaderboard:','Player');if(n&&n.trim()){userName=n.trim();localStorage.setItem('snakeUserName',userName)}}
 
 const GRID=20;
 let cellSize,offsetX,offsetY;
