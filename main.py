@@ -74,11 +74,12 @@ async def main():
     await application.start()
 
     port_number = int(os.environ.get("PORT", 8080))
-    webhook_url = f"{config.WEBHOOK_URL}/{config.TOKEN}"
+    webhook_path = "/webhook"
+    webhook_url = f"{config.WEBHOOK_URL}{webhook_path}"
     await application.bot.set_webhook(url=webhook_url)
 
     tornado_app = tornado.web.Application([
-        (f"/{config.TOKEN}", BotWebhookHandler, dict(bot_app=application)),
+        (webhook_path, BotWebhookHandler, dict(bot_app=application)),
         ("/game", GameHandler),
         ("/api/leaderboard", LeaderboardHandler),
     ])

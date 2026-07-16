@@ -18,10 +18,6 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 .overlay.hidden{opacity:0;pointer-events:none}
 .overlay h2{font-size:1.6rem;margin-bottom:4px;background:linear-gradient(135deg,#e94560,#ff6b81);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .overlay p{color:#888;font-size:.85rem;margin-bottom:12px}
-.dpad{display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,60px);gap:3px;justify-content:center;margin:8px 0 0;touch-action:none}
-.dpad-btn{display:flex;align-items:center;justify-content:center;background:rgba(233,69,96,.12);border:1px solid rgba(233,69,96,.25);border-radius:12px;color:#e94560;font-size:1.4rem;cursor:pointer;touch-action:none;-webkit-tap-highlight-color:transparent;transition:background .1s}
-.dpad-btn:active{background:rgba(233,69,96,.35)}
-.dpad-empty{visibility:hidden}
 .btn-group{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
 .btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
 .btn-primary{background:linear-gradient(135deg,#e94560,#ff6b81);color:#fff;box-shadow:0 4px 15px rgba(233,69,96,.3)}
@@ -38,10 +34,9 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 .lb-rank.bronze{color:#cd7f32}
 .lb-name{flex:1;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lb-score{font-weight:700;color:#e94560}
-#dpadGame{margin:6px auto 0}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.9);color:#fff;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
-@media(max-width:420px){.header h1{font-size:1rem}.stats{font-size:.75rem;gap:10px;padding:3px 10px}.dpad{grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px)}.dpad-btn{font-size:1.2rem;border-radius:10px}.overlay h2{font-size:1.3rem}}
+@media(max-width:420px){.header h1{font-size:1rem}.stats{font-size:.75rem;gap:10px;padding:3px 10px}.overlay h2{font-size:1.3rem}}
 </style>
 </head>
 <body>
@@ -57,7 +52,7 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
     <canvas id="gameCanvas"></canvas>
     <div class="overlay" id="startOverlay">
       <h2>🐍 Snake Pro</h2>
-      <p>WASD · Arrows · Swipe · D-Pad</p>
+      <p>WASD · Arrows · Swipe</p>
       <button class="btn btn-primary" id="playBtn">▶ PLAY</button>
     </div>
     <div class="overlay hidden" id="gameOverOverlay">
@@ -71,14 +66,7 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
       </div>
     </div>
   </div>
-  <div class="dpad" id="dpadGame">
-    <div class="dpad-empty"></div>
-    <div class="dpad-btn" data-dir="up">▲</div>
-    <div class="dpad-empty"></div>
-    <div class="dpad-btn" data-dir="left">◀</div>
-    <div class="dpad-btn" data-dir="down">▼</div>
-    <div class="dpad-btn" data-dir="right">▶</div>
-  </div>
+
   <div class="leaderbox" id="leaderbox">
     <h3>🏆 LEADERBOARD</h3>
     <div id="lbRows"><p style="text-align:center;color:#555;font-size:.75rem">Loading...</p></div>
@@ -334,14 +322,7 @@ canvas.addEventListener('touchend',e=>{
   touchStartX=0;
 },{passive:true});
 
-// D-pad
-document.querySelectorAll('.dpad-btn').forEach(el=>{
-  el.addEventListener('click',()=>{
-    const d=el.dataset.dir;
-    if(!running)return;
-    switch(d){case'up':setDirection(0,-1);break;case'down':setDirection(0,1);break;case'left':setDirection(-1,0);break;case'right':setDirection(1,0);break}
-  });
-});
+
 if(!CanvasRenderingContext2D.prototype.roundRect){
   CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){if(r>w/2)r=w/2;if(r>h/2)r=h/2;this.moveTo(x+r,y);this.arcTo(x+w,y,x+w,y+h,r);this.arcTo(x+w,y+h,x,y+h,r);this.arcTo(x,y+h,x,y,r);this.arcTo(x,y,x+w,y,r);this.closePath()}
 }
