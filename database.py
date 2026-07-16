@@ -54,8 +54,42 @@ async def init_db():
             ON CONFLICT (user_id) DO UPDATE SET role = 'admin'
         ''', config.ADMIN_ID)
 
+    await init_game_tables()
+
 async def get_role(user_id: int) -> str:
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
         return row['role'] if row else None
+
+async def init_game_tables():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS snake_scores (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                user_name TEXT DEFAULT 'Player',
+                score INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+async def submit_score(user_id: str, user_name: str, score: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('INSERT INTO snake_scores (user_id, user_name, score) VALUES ($1, $2, $3)', user_id, user_name, score)
+        old_best = await conn.fetchval(
+            'SELECT score FROM snake_scores WHERE user_id = $1 ORDER BY score DESC LIMIT 1 OFFSET 1',
+            user_id
+        )
+        return old_best is None or score > old_best
+
+async def get_leaderboard(limit: int = 10):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT DISTINCT ON (s.user_id) s.user_id, s.user_name, s.score FROM snake_scores s ORDER BY s.user_id, s.score DESC LIMIT $1',
+            limit
+        )
+        return [dict(r) for r in rows]
