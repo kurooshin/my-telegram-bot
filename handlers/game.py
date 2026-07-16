@@ -7,11 +7,9 @@ import database
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         game_url = f"{config.WEBHOOK_URL}/game"
-        await update.message.reply_text(
-            "🎮 Snake Game\n\n"
-            "Desktop: WASD / Arrow Keys | Space=Pause\n"
-            "Mobile: Swipe to move\n\n"
-            "Click below to play:",
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="🎮 Snake Game\n\nDesktop: WASD / Arrow Keys | Space=Pause\nMobile: Swipe to move\n\nClick below to play:",
             api_kwargs={
                 "reply_markup": {
                     "inline_keyboard": [[
