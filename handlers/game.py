@@ -7,7 +7,8 @@ import database
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         game_url = f"{config.WEBHOOK_URL}/game"
-        keyboard = [[InlineKeyboardButton("🐍 Play Snake", url=game_url)]]
+        button = InlineKeyboardButton("🐍 Play Snake", url=game_url)
+        keyboard = [[button]]
         await update.message.reply_text(
             "🎮 Snake Game\n\n"
             "Desktop: WASD / Arrow Keys | Space=Pause\n"
