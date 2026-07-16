@@ -17,7 +17,7 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logging.error(f"Game command error: {e}")
-        await update.message.reply_text("❌ Error starting game.")
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
