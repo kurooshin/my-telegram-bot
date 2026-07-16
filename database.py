@@ -54,17 +54,6 @@ async def init_db():
             ON CONFLICT (user_id) DO UPDATE SET role = 'admin'
         ''', config.ADMIN_ID)
 
-    await init_game_tables()
-
-async def get_role(user_id: int) -> str:
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
-        return row['role'] if row else None
-
-async def init_game_tables():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS snake_scores (
                 id SERIAL PRIMARY KEY,
@@ -74,6 +63,12 @@ async def init_game_tables():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+async def get_role(user_id: int) -> str:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
+        return row['role'] if row else None
 
 async def submit_score(user_id: str, user_name: str, score: int):
     pool = await get_pool()
