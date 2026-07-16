@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, filters
 import config
 import database
@@ -7,10 +7,10 @@ import database
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         game_url = f"{config.WEBHOOK_URL}/game"
-        keyboard = [[InlineKeyboardButton("🐍 Play Snake", web_app=WebAppInfo(url=game_url))]]
+        keyboard = [[InlineKeyboardButton("🐍 Play Snake", url=game_url)]]
         await update.message.reply_text(
             "🎮 Snake Game\n\n"
-            "Desktop: WASD / Arrow Keys\n"
+            "Desktop: WASD / Arrow Keys | Space=Pause\n"
             "Mobile: Swipe to move\n\n"
             "Click below to play:",
             reply_markup=InlineKeyboardMarkup(keyboard)
