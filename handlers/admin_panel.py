@@ -6,7 +6,7 @@ import database
 
 warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*")
 
-ADD_KEYWORD, ADD_RESPONSE, ADD_CO_ID, ADD_CO_NAME = range(4)
+ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME = range(5)
 
 async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -71,14 +71,15 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
 async def display_beautiful_keywords(query, prefix=""):
     conn = await database.get_db_connection()
     try:
-        rows = await conn.fetch('SELECT id, keyword, response FROM bot_keywords ORDER BY id DESC')
+        rows = await conn.fetch('SELECT id, keyword, response, match_type FROM bot_keywords ORDER BY id DESC')
         if not rows:
             await query.edit_message_text(f"{prefix}ℹ️ هنوز هیچ کلمه‌ای آموزش داده نشده است.")
             return
         text = f"{prefix}📋 **لیست کلمات فعال ربات:**\n\n"
         keyboard = []
         for i, r in enumerate(rows, 1):
-            text += f"{i}. `{r['keyword']}` = {r['response']}\n"
+            mt = "🔴" if r['match_type'] == 'exact' else "🟢"
+            text += f"{i}. `{r['keyword']}` = {r['response']} {mt}\n"
             keyboard.append([InlineKeyboardButton(f"🗑 حذف کلمه {i} ({r['keyword']})", callback_data=f"del_{r['id']}")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
     finally:
@@ -110,12 +111,33 @@ async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_RESPONSE
 
 async def process_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['temp_res'] = update.message.text.strip()
+    keyboard = [
+        [InlineKeyboardButton("🟢 انعطاف‌پذیر (پیش‌فرض)", callback_data="mtype_flexible")],
+        [InlineKeyboardButton("🔴 دقیق (فقط همان کلمه)", callback_data="mtype_exact")]
+    ]
+    await update.message.reply_text(
+        "نوع مطابقت کلمه را انتخاب کنید:\n\n"
+        "🟢 انعطاف‌پذیر — مثل «عباس» با «عباااس» هم جواب می‌دهد\n"
+        "🔴 دقیق — مثل «سلام» فقط با «سلام» جواب می‌دهد نه «سلاممم»",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADD_MATCH_TYPE
+
+async def process_match_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    match_type = query.data.replace("mtype_", "")
     keyword = context.user_data.get('temp_kw')
-    response = update.message.text.strip()
+    response = context.user_data.get('temp_res')
     conn = await database.get_db_connection()
     try:
-        await conn.execute('INSERT INTO bot_keywords (keyword, response) VALUES ($1, $2) ON CONFLICT (keyword) DO UPDATE SET response = $2', keyword, response)
-        await update.message.reply_text(f"✅ کلمه کلیدی ذخیره شد!")
+        await conn.execute(
+            'INSERT INTO bot_keywords (keyword, response, match_type) VALUES ($1, $2, $3) ON CONFLICT (keyword) DO UPDATE SET response = $2, match_type = $3',
+            keyword, response, match_type
+        )
+        type_label = "دقیق" if match_type == "exact" else "انعطاف‌پذیر"
+        await query.edit_message_text(f"✅ کلمه کلیدی با نوع «{type_label}» ذخیره شد!")
     finally:
         await conn.close()
         context.user_data.clear()
@@ -155,6 +177,7 @@ panel_conversation = ConversationHandler(
     states={
         ADD_KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_keyword)],
         ADD_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_response)],
+        ADD_MATCH_TYPE: [CallbackQueryHandler(process_match_type, pattern="^mtype_")],
         ADD_CO_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_id)],
         ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)]
     },

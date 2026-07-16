@@ -28,11 +28,17 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        # ۲. بررسی کلمات کلیدی (مطابقت partial/contains, case-insensitive, طویل‌ترین کلمه اولویت دارد)
-        row = await conn.fetchrow(
-            'SELECT response FROM bot_keywords WHERE POSITION(LOWER(keyword) IN LOWER($1)) > 0 ORDER BY LENGTH(keyword) DESC LIMIT 1',
-            incoming_text
-        )
+        # ۲. بررسی کلمات کلیدی (exact یا flexible براساس match_type)
+        row = await conn.fetchrow('''
+            SELECT response FROM bot_keywords WHERE
+                (match_type = 'exact' AND LOWER(keyword) = LOWER($1))
+                OR
+                (match_type = 'flexible' AND POSITION(LOWER(keyword) IN LOWER($1)) > 0)
+            ORDER BY
+                CASE WHEN match_type = 'exact' THEN 0 ELSE 1 END,
+                LENGTH(keyword) DESC
+            LIMIT 1
+        ''', incoming_text)
         if row:
             await update.message.reply_text(row['response'])
 

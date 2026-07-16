@@ -27,9 +27,11 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS bot_keywords (
                 id SERIAL PRIMARY KEY,
                 keyword TEXT UNIQUE NOT NULL,
-                response TEXT NOT NULL
+                response TEXT NOT NULL,
+                match_type TEXT DEFAULT 'flexible'
             );
         ''')
+        await conn.execute("ALTER TABLE bot_keywords ADD COLUMN IF NOT EXISTS match_type TEXT DEFAULT 'flexible'")
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS bot_admins (
                 user_id BIGINT PRIMARY KEY,
