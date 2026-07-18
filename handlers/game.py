@@ -116,30 +116,13 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚫ **Othello Started!**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to watch:",
+                text=f"⚫ **Othello Started!**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to play or watch:",
                 api_kwargs={
                     "reply_markup": {"inline_keyboard": [[
-                        {"text": "👀 Watch", "url": url}
+                        {"text": "⚫ Open Game", "url": url}
                     ]]}
                 }
             )
-
-            for player, opp_name, sym, color in [
-                (g['black'], g['white']['name'], "○", "Black"),
-                (g['white'], g['black']['name'], "●", "White"),
-            ]:
-                try:
-                    await context.bot.send_message(
-                        chat_id=player['id'],
-                        text=f"⚫ **Match Found!**\n\n{opp_name} ({sym}) vs **You** ({color})\n\nClick to play:",
-                        api_kwargs={
-                            "reply_markup": {"inline_keyboard": [[
-                                game_button("⚫ Play Othello", url, True, "private")
-                            ]]}
-                        }
-                    )
-                except Exception as e:
-                    logging.error(f"Failed to notify {player['id']}: {e}")
 
     elif data == "oth_leave":
         othello_game.lobby_remove(chat_id, uid)

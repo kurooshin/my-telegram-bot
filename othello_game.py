@@ -141,9 +141,9 @@ def make_move(gid, user_id, r, c):
     if not g or g['game_over']:
         return None
     color = None
-    if g['black']['id'] == user_id:
+    if g['black']['id'] == user_id or user_id == 'black':
         color = 'b'
-    elif g['white']['id'] == user_id:
+    elif g['white']['id'] == user_id or user_id == 'white':
         color = 'w'
     if not color or g['turn'] != color:
         return None
