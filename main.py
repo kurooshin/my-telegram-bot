@@ -11,7 +11,8 @@ import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
-from handlers.game import games_handler, game_handler, tello_handler, leaderboard_handler
+from handlers.game import game_handler, tello_handler, leaderboard_handler
+import othello_game
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -73,13 +74,39 @@ class LeaderboardHandler(tornado.web.RequestHandler):
             logging.error(f"Score submit error: {e}")
         self.write('ok')
 
+class OthelloStateHandler(tornado.web.RequestHandler):
+    def get(self):
+        gid = self.get_query_argument('game_id', None)
+        uid = self.get_query_argument('user_id', None)
+        self.set_header('Content-Type', 'application/json')
+        if not gid:
+            self.write(json.dumps(None))
+            return
+        state = othello_game.get_state(gid)
+        self.write(json.dumps(state, ensure_ascii=False, default=str))
+
+class OthelloMoveHandler(tornado.web.RequestHandler):
+    async def post(self):
+        self.set_header('Content-Type', 'application/json')
+        try:
+            body = json.loads(self.request.body)
+            gid = body.get('game_id')
+            uid = body.get('user_id')
+            r = int(body.get('row'))
+            c = int(body.get('col'))
+            state = othello_game.make_move(gid, uid, r, c)
+            self.write(json.dumps(state, ensure_ascii=False, default=str))
+        except Exception as e:
+            logging.error(f"Othello move error: {e}")
+            self.set_status(400)
+            self.write(json.dumps(None))
+
 async def main():
     await database.init_db()
 
     application = Application.builder().token(config.TOKEN).build()
     application.add_handler(panel_conversation)
     application.add_handler(say_handler)
-    application.add_handler(games_handler)
     application.add_handler(game_handler)
     application.add_handler(tello_handler)
     application.add_handler(leaderboard_handler)
@@ -97,6 +124,8 @@ async def main():
         (webhook_path, BotWebhookHandler, dict(bot_app=application)),
         ("/game", GameHandler),
         ("/tello", TelloHandler),
+        ("/api/othello/state", OthelloStateHandler),
+        ("/api/othello/move", OthelloMoveHandler),
         ("/api/leaderboard", LeaderboardHandler),
     ])
     tornado_app.listen(port_number, "0.0.0.0")
