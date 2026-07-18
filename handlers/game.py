@@ -10,6 +10,12 @@ def game_button(text, url, use_webapp, chat_type):
         return {"text": text, "web_app": {"url": url}}
     return {"text": text, "url": url}
 
+def othello_buttons():
+    return [
+        [{"text": "✅ Join Othello", "callback_data": "othello_join"},
+         {"text": "❌ Leave Queue", "callback_data": "othello_leave"}]
+    ]
+
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         base = config.WEBHOOK_URL
@@ -23,9 +29,7 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "reply_markup": {
                     "inline_keyboard": [[
                         game_button("🐍 Snake", f"{base}/game", True, ct)
-                    ], [
-                        {"text": "⚫ Join Othello", "callback_data": "othello_join"}
-                    ]]
+                    ]] + othello_buttons()
                 }
             }
         )
@@ -59,18 +63,11 @@ async def show_othello_menu(context, chat_id, uid, name):
             return
 
     in_queue = any(q['user_id'] == uid for q in othello_game.waiting_queue)
-
-    if in_queue:
-        text = "⏳ You're in the Othello queue!\n\nWaiting for an opponent to join..."
-        buttons = [[{"text": "❌ Leave Queue", "callback_data": "othello_leave"}]]
-    else:
-        text = "⚫ **Othello (Reversi)**\n\n2-player matchmaking\nClick Join to find an opponent:"
-        buttons = [[{"text": "✅ Join Queue", "callback_data": "othello_join"}]]
-
+    text = "⏳ You're in queue!" if in_queue else "⚫ **Othello (Reversi)** — 2-player matchmaking"
     await context.bot.send_message(
         chat_id=chat_id,
         text=text,
-        api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
+        api_kwargs={"reply_markup": {"inline_keyboard": othello_buttons()}}
     )
 
 async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,12 +94,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         othello_game.waiting_queue.append({'user_id': uid, 'name': name, 'chat_id': chat_id})
         await context.bot.send_message(
             chat_id=chat_id,
-            text="⏳ Joined the Othello queue!\n\nWaiting for an opponent...\n\nUse /tello to check status.",
-            api_kwargs={
-                "reply_markup": {"inline_keyboard": [[
-                    {"text": "❌ Leave Queue", "callback_data": "othello_leave"}
-                ]]}
-            }
+            text="⏳ Joined the Othello queue!\n\nWaiting for an opponent...",
+            api_kwargs={"reply_markup": {"inline_keyboard": othello_buttons()}}
         )
 
         # Try to match
@@ -139,10 +132,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "othello_leave":
         was_in = any(q['user_id'] == uid for q in othello_game.waiting_queue)
         othello_game.waiting_queue[:] = [q for q in othello_game.waiting_queue if q['user_id'] != uid]
-        if was_in:
-            await context.bot.send_message(chat_id=chat_id, text="✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
-        else:
-            await context.bot.send_message(chat_id=chat_id, text="❌ You're not in the Othello queue.")
+        text = "✅ Left the Othello queue." if was_in else "❌ You're not in the Othello queue."
+        await context.bot.send_message(chat_id=chat_id, text=text, api_kwargs={"reply_markup": {"inline_keyboard": othello_buttons()}})
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
