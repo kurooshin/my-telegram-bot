@@ -11,7 +11,7 @@ import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
-from handlers.game import game_handler, leaderboard_handler
+from handlers.game import games_handler, game_handler, tello_handler, leaderboard_handler
 
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
@@ -33,6 +33,16 @@ class BotWebhookHandler(tornado.web.RequestHandler):
 class GameHandler(tornado.web.RequestHandler):
     def get(self):
         game_path = os.path.join(os.path.dirname(__file__), 'web', 'game.html')
+        self.set_header('Content-Type', 'text/html; charset=utf-8')
+        self.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+        self.set_header('Pragma', 'no-cache')
+        self.set_header('Expires', '0')
+        with open(game_path, 'r', encoding='utf-8') as f:
+            self.write(f.read())
+
+class TelloHandler(tornado.web.RequestHandler):
+    def get(self):
+        game_path = os.path.join(os.path.dirname(__file__), 'web', 'tello.html')
         self.set_header('Content-Type', 'text/html; charset=utf-8')
         self.set_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         self.set_header('Pragma', 'no-cache')
@@ -69,7 +79,9 @@ async def main():
     application = Application.builder().token(config.TOKEN).build()
     application.add_handler(panel_conversation)
     application.add_handler(say_handler)
+    application.add_handler(games_handler)
     application.add_handler(game_handler)
+    application.add_handler(tello_handler)
     application.add_handler(leaderboard_handler)
     application.add_handler(keyword_handler)
 
@@ -84,6 +96,7 @@ async def main():
     tornado_app = tornado.web.Application([
         (webhook_path, BotWebhookHandler, dict(bot_app=application)),
         ("/game", GameHandler),
+        ("/tello", TelloHandler),
         ("/api/leaderboard", LeaderboardHandler),
     ])
     tornado_app.listen(port_number, "0.0.0.0")
