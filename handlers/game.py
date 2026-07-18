@@ -137,8 +137,12 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logging.error(f"Failed to notify {player['user_id']}: {e}")
 
     elif data == "othello_leave":
+        was_in = any(q['user_id'] == uid for q in othello_game.waiting_queue)
         othello_game.waiting_queue[:] = [q for q in othello_game.waiting_queue if q['user_id'] != uid]
-        await context.bot.send_message(chat_id=chat_id, text="✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
+        if was_in:
+            await context.bot.send_message(chat_id=chat_id, text="✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="❌ You're not in the Othello queue.")
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
