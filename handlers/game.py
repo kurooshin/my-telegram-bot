@@ -87,16 +87,17 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Check if already in a game
         for gid, g in list(othello_game.games.items()):
             if g['black']['id'] == uid or g['white']['id'] == uid:
-                await query.edit_message_text("⚫ You already have an active Othello game!")
+                await context.bot.send_message(chat_id=chat_id, text="⚫ You already have an active Othello game!")
                 return
 
         if any(q['user_id'] == uid for q in othello_game.waiting_queue):
-            await query.edit_message_text("⏳ You're already in the queue!")
+            await context.bot.send_message(chat_id=chat_id, text="⏳ You're already in the queue!")
             return
 
         othello_game.waiting_queue.append({'user_id': uid, 'name': name, 'chat_id': chat_id})
-        await query.edit_message_text(
-            "⏳ Joined the Othello queue!\n\nWaiting for an opponent...\n\nUse /tello to check status.",
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="⏳ Joined the Othello queue!\n\nWaiting for an opponent...\n\nUse /tello to check status.",
             api_kwargs={
                 "reply_markup": {"inline_keyboard": [[
                     {"text": "❌ Leave Queue", "callback_data": "othello_leave"}
@@ -117,41 +118,27 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base = config.WEBHOOK_URL
             url = f"{base}/tello?game_id={gid}"
 
-            # Notify p1
-            try:
-                opp_name = p2['name']
-                your_color = "● Black"
-                await context.bot.send_message(
-                    chat_id=p1['chat_id'],
-                    text=f"⚫ **Match Found!**\n\n{opp_name} (○) vs **You** ({your_color})\n\nClick below to play:",
-                    api_kwargs={
-                        "reply_markup": {"inline_keyboard": [[
-                            game_button("⚫ Play Othello", url, True, "private")
-                        ]]}
-                    }
-                )
-            except Exception as e:
-                logging.error(f"Failed to notify {p1['user_id']}: {e}")
-
-            # Notify p2
-            try:
-                opp_name = p1['name']
-                your_color = "○ White"
-                await context.bot.send_message(
-                    chat_id=p2['chat_id'],
-                    text=f"⚫ **Match Found!**\n\n{opp_name} (●) vs **You** ({your_color})\n\nClick below to play:",
-                    api_kwargs={
-                        "reply_markup": {"inline_keyboard": [[
-                            game_button("⚫ Play Othello", url, True, "private")
-                        ]]}
-                    }
-                )
-            except Exception as e:
-                logging.error(f"Failed to notify {p2['user_id']}: {e}")
+            notifs = [
+                (p1, p2['name'], "●", "Black"),
+                (p2, p1['name'], "○", "White"),
+            ]
+            for player, opp_name, opp_sym, my_color in notifs:
+                try:
+                    await context.bot.send_message(
+                        chat_id=player['chat_id'],
+                        text=f"⚫ **Match Found!**\n\n{opp_name} ({opp_sym}) vs **You** ({my_color})\n\nClick below to play:",
+                        api_kwargs={
+                            "reply_markup": {"inline_keyboard": [[
+                                game_button("⚫ Play Othello", url, True, "private")
+                            ]]}
+                        }
+                    )
+                except Exception as e:
+                    logging.error(f"Failed to notify {player['user_id']}: {e}")
 
     elif data == "othello_leave":
         othello_game.waiting_queue[:] = [q for q in othello_game.waiting_queue if q['user_id'] != uid]
-        await query.edit_message_text("✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
+        await context.bot.send_message(chat_id=chat_id, text="✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
