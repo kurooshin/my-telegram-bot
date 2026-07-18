@@ -10,6 +10,12 @@ def game_button(text, url, use_webapp, chat_type):
         return {"text": text, "web_app": {"url": url}}
     return {"text": text, "url": url}
 
+def lobby_markup():
+    return {"inline_keyboard": [
+        [{"text": "✅ Join", "callback_data": "oth_join"},
+         {"text": "❌ Leave", "callback_data": "oth_leave"}]
+    ]}
+
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         base = config.WEBHOOK_URL
@@ -37,7 +43,6 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = str(update.effective_user.id)
         name = update.effective_user.first_name or "Player"
 
-        # Check if in an active game
         for gid, g in list(othello_game.games.items()):
             if g['black']['id'] == uid or g['white']['id'] == uid:
                 url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
@@ -48,34 +53,15 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
 
-        # Show lobby
-        await send_or_update_lobby(context, chat_id)
+        othello_game.get_or_create_lobby(chat_id)
+        text = othello_game.lobby_text(chat_id)
+        await context.bot.send_message(
+            chat_id=chat_id, text=text,
+            api_kwargs={"reply_markup": lobby_markup()}
+        )
     except Exception as e:
         logging.error(f"Tello command error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
-
-async def send_or_update_lobby(context, chat_id):
-    lobby = othello_game.get_or_create_lobby(chat_id)
-    text = othello_game.lobby_text(chat_id)
-    buttons = othello_game.lobby_buttons()
-
-    if lobby['message_id']:
-        try:
-            await context.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=lobby['message_id'],
-                text=text,
-                api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
-            )
-            return
-        except Exception:
-            lobby['message_id'] = None
-
-    msg = await context.bot.send_message(
-        chat_id=chat_id, text=text,
-        api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
-    )
-    lobby['message_id'] = msg.message_id
 
 async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -87,48 +73,60 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "oth_hub":
-        # Show lobby from hub
-        await send_or_update_lobby(context, chat_id)
+        othello_game.get_or_create_lobby(chat_id)
+        text = othello_game.lobby_text(chat_id)
+        try:
+            await query.edit_message_text(
+                text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=chat_id, text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
         return
 
     if data == "oth_join":
-        # Check if already in a running game
         for gid, g in list(othello_game.games.items()):
             if g['black']['id'] == uid or g['white']['id'] == uid:
-                await send_or_update_lobby(context, chat_id)
                 return
 
         ok, err = othello_game.lobby_add(chat_id, uid, name)
+        text = othello_game.lobby_text(chat_id)
+
+        try:
+            await query.edit_message_text(
+                text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=chat_id, text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
+
         if not ok:
-            await send_or_update_lobby(context, chat_id)
             return
 
-        # Update lobby
-        await send_or_update_lobby(context, chat_id)
-
-        # Check for match
         gid = othello_game.check_match(chat_id)
         if gid:
             g = othello_game.games[gid]
             url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
-            p1, p2 = g['black'], g['white']
 
-            # Notify the group (spectators)
-            watch_url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚫ **Othello Started!**\n\n{p1['name']} (●) vs {p2['name']} (○)\n\nClick to watch the game:",
+                text=f"⚫ **Othello Started!**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to watch:",
                 api_kwargs={
                     "reply_markup": {"inline_keyboard": [[
-                        {"text": "👀 Watch Game", "url": watch_url}
+                        {"text": "👀 Watch", "url": url}
                     ]]}
                 }
             )
 
-            # Notify each player privately
             for player, opp_name, sym, color in [
-                (p1, p2['name'], "○", "Black"),
-                (p2, p1['name'], "●", "White"),
+                (g['black'], g['white']['name'], "○", "Black"),
+                (g['white'], g['black']['name'], "●", "White"),
             ]:
                 try:
                     await context.bot.send_message(
@@ -145,7 +143,17 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "oth_leave":
         othello_game.lobby_remove(chat_id, uid)
-        await send_or_update_lobby(context, chat_id)
+        text = othello_game.lobby_text(chat_id)
+        try:
+            await query.edit_message_text(
+                text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=chat_id, text=text,
+                api_kwargs={"reply_markup": lobby_markup()}
+            )
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:

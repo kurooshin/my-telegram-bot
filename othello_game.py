@@ -62,9 +62,9 @@ def lobby_buttons():
          {"text": "❌ Leave", "callback_data": "oth_leave"}]
     ]
 
-def get_or_create_lobby(chat_id, user_id=None, user_name=None):
+def get_or_create_lobby(chat_id):
     if chat_id not in lobbies:
-        lobbies[chat_id] = {'players': [], 'message_id': None}
+        lobbies[chat_id] = {'players': []}
     return lobbies[chat_id]
 
 def lobby_add(chat_id, user_id, user_name):
