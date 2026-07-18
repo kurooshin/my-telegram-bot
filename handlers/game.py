@@ -20,7 +20,7 @@ async def games_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "reply_markup": {
                     "inline_keyboard": [[
                         game_button("🐍 Snake", f"{base}/game", True, ct),
-                        game_button("🚁 Tello", f"{base}/tello", False, ct)
+                        game_button("⚫ Othello", f"{base}/tello", False, ct)
                     ]]
                 }
             }
@@ -50,10 +50,10 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         game_url = f"{config.WEBHOOK_URL}/tello"
-        btn = game_button("🚁 Fly Tello", game_url, False, "group")
+        btn = game_button("⚫ Play Othello", game_url, False, "group")
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="🚁 Tello Drone Game\n\nWASD / Arrows to fly\nAvoid obstacles⚡ · Collect batteries🔋\n\nClick below to play:",
+            text="⚫ Othello (Reversi)\n\n2-player local hot-seat\nClick a valid move to place your disc\n\nClick below to play:",
             api_kwargs={
                 "reply_markup": {
                     "inline_keyboard": [[btn]]

@@ -3,320 +3,264 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Tello Drone</title>
+<title>Othello</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:linear-gradient(180deg,#0a0a2e 0%,#1a1a3e 50%,#0d0d20 100%);color:#fff;font-family:'Segoe UI',system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;user-select:none}
+body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'Segoe UI',system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;user-select:none}
 .container{text-align:center;width:100%;max-width:480px;padding:8px;position:relative}
 .header{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 8px}
-.header h1{font-size:1.2rem;background:linear-gradient(135deg,#00d4ff,#007bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800}
-.stats{display:flex;gap:16px;font-size:.85rem;background:rgba(0,212,255,.12);border-radius:20px;padding:4px 14px}
-.stats span{color:#00d4ff;font-weight:700}
-.canvas-wrap{position:relative;margin:0 auto;width:100%;max-width:420px;aspect-ratio:1;border-radius:16px;background:#050515;border:2px solid rgba(0,212,255,.2);overflow:hidden;box-shadow:0 0 40px rgba(0,212,255,.1)}
+.header h1{font-size:1.3rem;font-weight:800;background:linear-gradient(135deg,#4ade80,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.status{font-size:.9rem;padding:6px 14px;border-radius:20px;background:rgba(74,222,128,.1)}
+.status .turn{font-weight:700}
+.status .turn.black{color:#fff}
+.status .turn.white{color:#4ade80}
+.canvas-wrap{position:relative;margin:0 auto;width:100%;max-width:420px;aspect-ratio:1;border-radius:16px;background:#0a0a15;border:2px solid rgba(74,222,128,.2);overflow:hidden;box-shadow:0 0 40px rgba(74,222,128,.08)}
 #gameCanvas{display:block;width:100%;height:100%;touch-action:none}
-.overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(5,5,21,.88);backdrop-filter:blur(6px);z-index:5;transition:opacity .3s}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(10,10,21,.88);backdrop-filter:blur(6px);z-index:5;transition:opacity .3s}
 .overlay.hidden{opacity:0;pointer-events:none}
-.overlay h2{font-size:1.6rem;margin-bottom:4px;background:linear-gradient(135deg,#00d4ff,#007bff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.overlay h2{font-size:1.6rem;margin-bottom:4px;color:#4ade80}
 .overlay p{color:#888;font-size:.85rem;margin-bottom:12px}
 .btn-group{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
 .btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
-.btn-primary{background:linear-gradient(135deg,#00d4ff,#007bff);color:#fff;box-shadow:0 4px 15px rgba(0,212,255,.3)}
-.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,212,255,.4)}
+.btn-primary{background:linear-gradient(135deg,#4ade80,#22c55e);color:#0a0a15;box-shadow:0 4px 15px rgba(74,222,128,.3)}
+.btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(74,222,128,.4)}
 .btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.1)}
 .btn-secondary:hover{background:rgba(255,255,255,.15)}
-.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(0,212,255,.9);color:#fff;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
+.score-box{display:flex;justify-content:space-around;padding:6px 0;font-size:.85rem}
+.score-box div{display:flex;align-items:center;gap:6px}
+.score-box .dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
+.score-box .dot.black{background:#fff;border-color:#888}
+.score-box .dot.white{background:#4ade80;border-color:#4ade80}
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(74,222,128,.9);color:#0a0a15;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
-.controls-hint{display:flex;justify-content:center;gap:12px;margin-top:6px;font-size:.7rem;color:#555;letter-spacing:.5px}
-@media(max-width:420px){.header h1{font-size:1rem}.stats{font-size:.75rem;gap:10px;padding:3px 10px}.overlay h2{font-size:1.3rem}}
+@media(max-width:420px){.header h1{font-size:1.1rem}.status{font-size:.8rem;padding:4px 10px}.overlay h2{font-size:1.3rem}}
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>🚁 TELLO DRONE</h1>
-    <div class="stats">
-      <div>Score <span id="scoreDisplay">0</span></div>
-      <div>Best <span id="bestDisplay">0</span></div>
-    </div>
+    <h1>⚫ OTHELLO ⚪</h1>
+    <div class="status">Turn: <span class="turn black" id="turnDisplay">● Black</span></div>
   </div>
   <div class="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
     <div class="overlay" id="startOverlay">
-      <h2>🚁 Tello Drone</h2>
-      <p>WASD · Arrows · Avoid obstacles · Collect batteries</p>
-      <button class="btn btn-primary" id="playBtn">▶ FLY</button>
+      <h2>⚫ Othello ⚪</h2>
+      <p>2-Player · Take turns placing discs</p>
+      <button class="btn btn-primary" id="playBtn">▶ START GAME</button>
     </div>
     <div class="overlay hidden" id="gameOverOverlay">
-      <h2>💥 Drone Crashed!</h2>
-      <p style="font-size:2.5rem;font-weight:800;margin:0" id="finalScore">0</p>
-      <p id="highScoreMsg" style="color:#4ade80;font-size:.9rem;display:none">🏆 New High Score!</p>
-      <p id="survivalMsg" style="color:#888;font-size:.75rem"></p>
+      <h2 id="winnerText">🏆 Winner!</h2>
+      <p style="font-size:2.5rem;font-weight:800;margin:4px 0" id="scoreText">● 0 — ⚪ 0</p>
+      <p id="resultText" style="color:#888;font-size:.85rem"></p>
       <div class="btn-group">
-        <button class="btn btn-primary" id="retryBtn">↻ RETRY</button>
+        <button class="btn btn-primary" id="retryBtn">↻ REMATCH</button>
         <button class="btn btn-secondary" id="homeBtn">✕ CLOSE</button>
       </div>
     </div>
   </div>
-  <div class="controls-hint">WASD / Arrows · Space=Pause</div>
+  <div class="score-box">
+    <div><span class="dot black"></span> Black: <span id="blackScore">2</span></div>
+    <div><span class="dot white"></span> White: <span id="whiteScore">2</span></div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
 const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
-const scoreD=document.getElementById('scoreDisplay'),bestD=document.getElementById('bestDisplay');
-const finalScore=document.getElementById('finalScore'),highScoreMsg=document.getElementById('highScoreMsg');
-const survivalMsg=document.getElementById('survivalMsg');
+const turnDisplay=document.getElementById('turnDisplay');
+const blackScore=document.getElementById('blackScore'),whiteScore=document.getElementById('whiteScore');
 const startOverlay=document.getElementById('startOverlay'),gameOverOverlay=document.getElementById('gameOverOverlay');
+const winnerText=document.getElementById('winnerText'),scoreText=document.getElementById('scoreText');
+const resultText=document.getElementById('resultText');
 const playBtn=document.getElementById('playBtn'),retryBtn=document.getElementById('retryBtn'),homeBtn=document.getElementById('homeBtn');
 const toast=document.getElementById('toast');
 
-let best=parseInt(localStorage.getItem('telloBest')||'0');bestD.textContent=best;
-let gameLoop,running,gameOver,paused;
-let drone,obstacles,batteries,particles,score,survivalTime;
-let keys={},touchStartX,touchStartY;
-let bgStars=[];
-
-for(let i=0;i<40;i++){bgStars.push({x:Math.random(),y:Math.random(),s:Math.random()*2+1,o:Math.random()*.5+.3})}
+const SIZE=8;let cellSize,board,turn,running,gameOver,lastMove;
+let bCount,wCount,validMoves=[],animFrame=0;
 
 function resize(){
   const wrap=canvas.parentElement;
-  const size=Math.min(wrap.clientWidth,wrap.clientHeight);
-  canvas.width=canvas.height=size;
+  const s=Math.min(wrap.clientWidth,wrap.clientHeight);
+  canvas.width=canvas.height=s;
+  cellSize=s/SIZE;
   draw();
 }
 window.addEventListener('resize',resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
 
-function init(){
-  drone={x:canvas.width/2,y:canvas.height-80,w:28,h:20,speed:3.5};
-  obstacles=[];batteries=[];particles=[];
-  score=0;survivalTime=0;running=false;gameOver=false;paused=false;
-  scoreD.textContent='0';keys={};
+function initBoard(){
+  board=Array.from({length:SIZE},()=>Array(SIZE).fill(null));
+  board[3][3]=board[4][4]='w';
+  board[3][4]=board[4][3]='b';
+  turn='b';gameOver=false;running=false;lastMove=null;validMoves=[];
+  bCount=2;wCount=2;
+  updateScores();
 }
 
-function spawnObstacle(){
-  const w=20+Math.random()*40,h=15+Math.random()*30;
-  const types=['#8B0000','#654321','#556B2F','#4A4A4A'];
-  obstacles.push({
-    x:10+Math.random()*(canvas.width-w-20),y:-h,
-    w,h,speed:1+Math.random()*1.5,color:types[Math.floor(Math.random()*types.length)]
-  });
-}
-
-function spawnBattery(){
-  batteries.push({
-    x:20+Math.random()*(canvas.width-40),y:-20,
-    w:16,h:22,speed:1.2+Math.random()*.8
-  });
-}
-
-function drawBackground(){
-  const grad=ctx.createLinearGradient(0,0,0,canvas.height);
-  grad.addColorStop(0,'#0a0a2e');grad.addColorStop(.5,'#1a1a3e');grad.addColorStop(1,'#0d0d20');
-  ctx.fillStyle=grad;ctx.fillRect(0,0,canvas.width,canvas.height);
-  bgStars.forEach(s=>{
-    ctx.fillStyle=`rgba(255,255,255,${s.o})`;
-    ctx.beginPath();ctx.arc(s.x*canvas.width,s.y*canvas.height,s.s,0,Math.PI*2);ctx.fill();
-  });
-  const groundY=canvas.height-8;
-  ctx.fillStyle='rgba(0,212,255,.06)';ctx.fillRect(0,groundY,canvas.width,8);
-  for(let i=0;i<canvas.width;i+=20){ctx.fillStyle='rgba(0,212,255,.08)';ctx.fillRect(i,groundY,1,8)}
-}
-
-function drawDrone(){
-  const d=drone;
-  ctx.save();ctx.translate(d.x,d.y);
-
-  // body
-  ctx.shadowColor='rgba(0,212,255,.3)';ctx.shadowBlur=15;
-  ctx.fillStyle='#1a1a2e';
-  ctx.beginPath();
-  ctx.ellipse(0,0,d.w/2,d.h/2,0,0,Math.PI*2);
-  ctx.fill();
-
-  // arms
-  ctx.strokeStyle='#444';ctx.lineWidth=2;ctx.shadowBlur=0;
-  const armL=d.w*.55;
-  ctx.beginPath();ctx.moveTo(-d.w*.2,-d.h*.1);ctx.lineTo(-armL,-armL*.6);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(d.w*.2,-d.h*.1);ctx.lineTo(armL,-armL*.6);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(-d.w*.2,d.h*.1);ctx.lineTo(-armL,armL*.6);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(d.w*.2,d.h*.1);ctx.lineTo(armL,armL*.6);ctx.stroke();
-
-  // rotors
-  const rotPos=[[-armL,-armL*.6],[armL,-armL*.6],[-armL,armL*.6],[armL,armL*.6]];
-  ctx.fillStyle='rgba(200,200,255,.4)';
-  const spin=Date.now()/80;
-  rotPos.forEach(([rx,ry])=>{
-    ctx.save();ctx.translate(rx,ry);ctx.rotate(spin);
-    ctx.beginPath();ctx.ellipse(0,0,9,4,0,0,Math.PI*2);ctx.fill();
-    ctx.restore();
-  });
-
-  // cockpit
-  ctx.shadowBlur=8;
-  ctx.fillStyle='#00d4ff';
-  ctx.beginPath();ctx.ellipse(0,d.h*.05,d.w*.2,d.h*.2,0,0,Math.PI*2);ctx.fill();
-
-  // light
-  ctx.shadowBlur=0;
-  ctx.fillStyle='#ff4444';
-  ctx.beginPath();ctx.arc(0,d.h*.4,2.5,0,Math.PI*2);ctx.fill();
-
-  ctx.shadowBlur=0;ctx.restore();
-}
-
-function drawObstacles(){
-  obstacles.forEach(o=>{
-    ctx.shadowColor='rgba(255,0,0,.2)';ctx.shadowBlur=10;
-    ctx.fillStyle=o.color;
-    ctx.beginPath();
-    ctx.roundRect(o.x,o.y,o.w,o.h,[3,6,3,6].slice(0,Math.min(4,2+(o.w>30?1:0)+1)));
-    ctx.fill();
-    ctx.shadowBlur=0;
-  });
-}
-
-function drawBatteries(){
-  batteries.forEach(b=>{
-    ctx.shadowColor='rgba(0,212,255,.5)';ctx.shadowBlur=15;
-    ctx.fillStyle='#00d4ff';
-    ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,3);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.3)';
-    const barH=b.h*.55;
-    ctx.beginPath();ctx.roundRect(b.x+3,b.y+barH,b.w-6,b.h-barH-3,2);ctx.fill();
-    ctx.fillStyle='#0a0a2e';
-    ctx.fillRect(b.x+2,b.y+2,b.w-4,5);
-    ctx.shadowBlur=0;
-  });
-}
-
-function drawParticles(){
-  particles=particles.filter(p=>{
-    p.x+=p.vx;p.y+=p.vy;p.vy+=.08;p.life-=.015;
-    if(p.life<=0)return false;
-    ctx.globalAlpha=p.life;
-    ctx.fillStyle=p.color;
-    ctx.beginPath();ctx.arc(p.x,p.y,p.size*p.life,0,Math.PI*2);ctx.fill();
-    ctx.globalAlpha=1;
-    return true;
-  });
-}
-
-function spawnParticles(x,y,color,count=10){
-  for(let i=0;i<count;i++){
-    const a=Math.random()*Math.PI*2,s=Math.random()*3+1;
-    particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-1,size:Math.random()*3+2,life:1,color});
+function getValidMoves(color){
+  const moves=[],opp=color==='b'?'w':'b';
+  for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+    if(board[r][c])continue;
+    const dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+    let valid=false;
+    for(const[dr,dc]of dirs){
+      let nr=r+dr,nc=c+dc,found=false;
+      while(nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&board[nr][nc]===opp){
+        nr+=dr;nc+=dc;found=true;
+      }
+      if(found&&nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&board[nr][nc]===color){valid=true;break}
+    }
+    if(valid)moves.push({r,c});
   }
+  return moves;
+}
+
+function flipDiscs(r,c,color){
+  const opp=color==='b'?'w':'b',flipped=[];
+  const dirs=[[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+  for(const[dr,dc]of dirs){
+    let nr=r+dr,nc=c+dc,temp=[];
+    while(nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&board[nr][nc]===opp){
+      temp.push({r:nr,c:nc});nr+=dr;nc+=dc;
+    }
+    if(nr>=0&&nr<SIZE&&nc>=0&&nc<SIZE&&board[nr][nc]===color)flipped.push(...temp);
+  }
+  flipped.forEach(({r,c})=>{board[r][c]=color});
+  return flipped.length;
+}
+
+function placeDisc(r,c){
+  if(!running||gameOver||board[r][c])return false;
+  if(!validMoves.some(m=>m.r===r&&m.c===c))return false;
+  board[r][c]=turn;
+  const flipped=flipDiscs(r,c,turn);
+  lastMove={r,c};
+  recalcCounts();
+  turn=turn==='b'?'w':'b';
+  validMoves=getValidMoves(turn);
+  if(validMoves.length===0){
+    turn=turn==='b'?'w':'b';
+    validMoves=getValidMoves(turn);
+    if(validMoves.length===0){gameOver=true;endGame();return true}
+    showToast('⏭ No moves — turn passed');
+  }
+  updateUI();
+  return true;
+}
+
+function recalcCounts(){
+  bCount=0;wCount=0;
+  for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+    if(board[r][c]==='b')bCount++;else if(board[r][c]==='w')wCount++;
+  }
+}
+
+function updateScores(){blackScore.textContent=bCount;whiteScore.textContent=wCount}
+
+function updateUI(){
+  updateScores();
+  turnDisplay.textContent=turn==='b'?'● Black':'○ White';
+  turnDisplay.className='turn '+(turn==='b'?'black':'white');
+  draw();
+}
+
+function endGame(){
+  running=false;
+  const winner=bCount>wCount?'Black':wCount>bCount?'White':'Draw';
+  winnerText.textContent=winner==='Draw'?'🤝 Draw!':'🏆 '+winner+' Wins!';
+  scoreText.textContent=`● ${bCount} — ⚪ ${wCount}`;
+  resultText.textContent=bCount+' vs '+wCount+' · '+SIZE+'x'+SIZE;
+  gameOverOverlay.classList.remove('hidden');
 }
 
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  drawBackground();drawObstacles();drawBatteries();drawDrone();drawParticles();
-  requestAnimationFrame(draw);
-}
+  const cs=cellSize;
 
-function update(){
-  if(gameOver||paused)return;
-  const d=drone;
-  let dx=0,dy=0;
-  if(keys['w']||keys['arrowup'])dy=-1;
-  if(keys['s']||keys['arrowdown'])dy=1;
-  if(keys['a']||keys['arrowleft'])dx=-1;
-  if(keys['d']||keys['arrowright'])dx=1;
-  if(dx||dy){const l=Math.sqrt(dx*dx+dy*dy);dx/=l;dy/=l}
-  d.x+=dx*d.speed;d.y+=dy*d.speed;
-  d.x=Math.max(d.w/2,Math.min(canvas.width-d.w/2,d.x));
-  d.y=Math.max(d.h/2+30,Math.min(canvas.height-d.h/2-10,d.y));
+  // board bg
+  ctx.fillStyle='#0a7a22';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  survivalTime+=1/60;
-  if(Math.random()<.008)spawnObstacle();
-  if(Math.random()<.004)spawnBattery();
-  if(Math.random()<.002&&obstacles.length<8)spawnObstacle();
+  // grid lines
+  ctx.strokeStyle='rgba(0,0,0,.4)';ctx.lineWidth=1;
+  for(let i=0;i<=SIZE;i++){
+    ctx.beginPath();ctx.moveTo(i*cs,0);ctx.lineTo(i*cs,canvas.height);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(0,i*cs);ctx.lineTo(canvas.width,i*cs);ctx.stroke();
+  }
 
-  obstacles.forEach(o=>{o.y+=o.speed});
-  obstacles=obstacles.filter(o=>o.y<canvas.height+20);
+  // discs
+  for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+    if(!board[r][c])continue;
+    const x=c*cs+cs/2,y=r*cs+cs/2,rad=cs*.42;
+    const isBlack=board[r][c]==='b';
+    const isLast=lastMove&&lastMove.r===r&&lastMove.c===c;
 
-  batteries.forEach(b=>{b.y+=b.speed});
-  batteries=batteries.filter(b=>b.y<canvas.height+20);
-
-  batteries=batteries.filter(b=>{
-    const hit=Math.abs(d.x-(b.x+b.w/2))<(d.w/2+b.w/2)&&Math.abs(d.y-(b.y+b.h/2))<(d.h/2+b.h/2);
-    if(hit){
-      score+=5;scoreD.textContent=score;
-      spawnParticles(b.x+b.w/2,b.y+b.h/2,'#00d4ff',8);
-      showToast('🔋 +5');
+    ctx.shadowColor='rgba(0,0,0,.3)';ctx.shadowBlur=4;
+    const grad=ctx.createRadialGradient(x-rad*.3,y-rad*.3,0,x,y,rad);
+    if(isBlack){
+      grad.addColorStop(0,'#555');grad.addColorStop(1,'#111');
+    }else{
+      grad.addColorStop(0,'#fff');grad.addColorStop(.5,'#eee');grad.addColorStop(1,'#ccc');
     }
-    return !hit;
-  });
+    ctx.fillStyle=grad;
+    ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
 
-  for(const o of obstacles){
-    if(Math.abs(d.x-(o.x+o.w/2))<(d.w/2+o.w/2)&&Math.abs(d.y-(o.y+o.h/2))<(d.h/2+o.h/2)){
-      spawnParticles(d.x,d.y,'#ff4444',20);spawnParticles(d.x,d.y,'#ffaa00',10);
-      gameOver=true;endGame();return;
+    if(isLast){
+      ctx.strokeStyle=isBlack?'#ff6b81':'#e94560';ctx.lineWidth=2.5;
+      ctx.beginPath();ctx.arc(x,y,rad+3,0,Math.PI*2);ctx.stroke();
     }
   }
 
-  scoreD.textContent=Math.floor(survivalTime*10)+score;
+  // valid move hints
+  if(running&&!gameOver){
+    validMoves.forEach(({r,c})=>{
+      const x=c*cs+cs/2,y=r*cs+cs/2;
+      ctx.fillStyle=turn==='b'?'rgba(255,255,255,.2)':'rgba(74,222,128,.2)';
+      ctx.beginPath();ctx.arc(x,y,cs*.15,0,Math.PI*2);ctx.fill();
+    });
+  }
+
+  // label
+  ctx.fillStyle='rgba(255,255,255,.06)';ctx.font='bold 10px sans-serif';ctx.textAlign='center';
+  ctx.fillText('OTHELLO',canvas.width/2,canvas.height-4);
 }
 
-function gameLoopTick(){
-  update();draw();
-  if(!gameOver)requestAnimationFrame(gameLoopTick);
+function handleClick(cx,cy){
+  if(!running||gameOver)return;
+  const c=Math.floor(cx/cellSize),r=Math.floor(cy/cellSize);
+  if(r>=0&&r<SIZE&&c>=0&&c<SIZE)placeDisc(r,c);
 }
 
-function endGame(){
-  running=false;const final=Math.floor(survivalTime*10)+score;
-  finalScore.textContent=final;
-  const isHigh=final>best;
-  if(isHigh){best=final;localStorage.setItem('telloBest',best.toString());bestD.textContent=best}
-  highScoreMsg.style.display=isHigh?'block':'none';
-  survivalMsg.textContent=`⏱ ${Math.floor(survivalTime)}s survival · ${score} from batteries`;
-  gameOverOverlay.classList.remove('hidden');
-}
-
-function startGame(){
-  startOverlay.classList.add('hidden');gameOverOverlay.classList.add('hidden');
-  init();running=true;
-  gameLoopTick();
-  showToast('🚁 Tello is flying!');
-}
-
-function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2000)}
-
-document.addEventListener('keydown',e=>{
-  if(!running&&gameOverOverlay.classList.contains('hidden')){if(e.key==='Enter'||e.key===' '){startGame();e.preventDefault();return}}
-  if(!running)return;
-  if(e.key==='p'||e.key==='P'||e.key==='Escape'){paused=!paused;showToast(paused?'⏸ Paused':'▶ Resumed');e.preventDefault();return}
-  keys[e.key.toLowerCase()]=true;e.preventDefault();
+canvas.addEventListener('click',e=>{
+  const rect=canvas.getBoundingClientRect();
+  handleClick(e.clientX-rect.left,e.clientY-rect.top);
 });
-document.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;e.preventDefault()});
 
 canvas.addEventListener('touchstart',e=>{
-  const t=e.touches[0];touchStartX=t.clientX;touchStartY=t.clientY;
-  if(!running&&gameOverOverlay.classList.contains('hidden')){startGame()}
-},{passive:true});
-
-canvas.addEventListener('touchmove',e=>{
-  if(!running||!touchStartX)return;
-  const t=e.touches[0],dx=t.clientX-touchStartX,dy=t.clientY-touchStartY;
-  const d=drone;
-  d.x=Math.max(d.w/2,Math.min(canvas.width-d.w/2,d.x+dx*1.2));
-  d.y=Math.max(d.h/2+30,Math.min(canvas.height-d.h/2-10,d.y+dy*1.2));
-  touchStartX=t.clientX;touchStartY=t.clientY;
+  if(!running&&gameOverOverlay.classList.contains('hidden')){startGame();return}
+  const rect=canvas.getBoundingClientRect();
+  const t=e.touches[0];
+  handleClick(t.clientX-rect.left,t.clientY-rect.top);
   e.preventDefault();
 },{passive:false});
 
-canvas.addEventListener('touchend',()=>{touchStartX=0},{passive:true});
-
-if(!CanvasRenderingContext2D.prototype.roundRect){
-  CanvasRenderingContext2D.prototype.roundRect=function(x,y,w,h,r){if(typeof r==='number')r=[r];r=r.map(v=>Math.min(v,Math.min(w,h)/2));const[tl,tr,br,bl]=r.length===4?r:[r[0],r[0]||r[0],r[2]||r[0],r[3]||r[0]];this.moveTo(x+tl,y);this.lineTo(x+w-tr,y);this.quadraticCurveTo(x+w,y,x+w,y+tr);this.lineTo(x+w,y+h-br);this.quadraticCurveTo(x+w,y+h,x+w-br,y+h);this.lineTo(x+bl,y+h);this.quadraticCurveTo(x,y+h,x,y+h-bl);this.lineTo(x,y+tl);this.quadraticCurveTo(x,y,x+tl,y);this.closePath()}
+function startGame(){
+  startOverlay.classList.add('hidden');gameOverOverlay.classList.add('hidden');
+  initBoard();turn='b';running=true;
+  validMoves=getValidMoves('b');
+  updateUI();
+  showToast('⚫ Black goes first');
 }
+
+function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),1500)}
 
 playBtn.addEventListener('click',startGame);
 retryBtn.addEventListener('click',startGame);
 homeBtn.addEventListener('click',()=>{gameOverOverlay.classList.add('hidden');startOverlay.classList.remove('hidden')});
 
-init();resize();
+initBoard();resize();updateUI();
 </script>
 </body>
 </html>
