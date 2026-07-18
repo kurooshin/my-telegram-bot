@@ -1,9 +1,36 @@
+import asyncio
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 import config
 import database
 import othello_game
+
+lobby_tasks = {}
+
+async def _lobby_timeout(chat_id, bot):
+    try:
+        await asyncio.sleep(120)
+        lobby = othello_game.lobbies.get(chat_id)
+        if lobby and len(lobby['players']) < 2:
+            del othello_game.lobbies[chat_id]
+            await bot.send_message(
+                chat_id=chat_id,
+                text="⏰ **Time up!** Not enough players joined. Lobby closed.\n\nUse /game or /tello to start a new one."
+            )
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logging.error(f"Lobby timeout error: {e}")
+
+def schedule_lobby_timeout(chat_id, bot):
+    cancel_lobby_timeout(chat_id)
+    lobby_tasks[chat_id] = asyncio.create_task(_lobby_timeout(chat_id, bot))
+
+def cancel_lobby_timeout(chat_id):
+    task = lobby_tasks.pop(chat_id, None)
+    if task:
+        task.cancel()
 
 def game_button(text, url, use_webapp, chat_type):
     if use_webapp and chat_type not in ("group", "supergroup"):
@@ -54,6 +81,7 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         othello_game.get_or_create_lobby(chat_id)
+        schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
         await context.bot.send_message(
             chat_id=chat_id, text=text,
@@ -74,6 +102,7 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "oth_hub":
         othello_game.get_or_create_lobby(chat_id)
+        schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -111,6 +140,7 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gid = othello_game.check_match(chat_id)
         if gid:
+            cancel_lobby_timeout(chat_id)
             g = othello_game.games[gid]
             url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
 
@@ -126,6 +156,9 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "oth_leave":
         othello_game.lobby_remove(chat_id, uid)
+        lobby = othello_game.lobbies.get(chat_id)
+        if not lobby or not lobby['players']:
+            cancel_lobby_timeout(chat_id)
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
