@@ -10,7 +10,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .container{text-align:center;width:100%;max-width:480px;padding:8px;position:relative}
 .header{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 8px}
 .header h1{font-size:1.1rem;font-weight:800;background:linear-gradient(135deg,#4ade80,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.status{font-size:.85rem;padding:4px 12px;border-radius:20px;background:rgba(74,222,128,.1);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status{font-size:.85rem;padding:4px 12px;border-radius:20px;background:rgba(74,222,128,.1);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-height:28px}
 .status .turn{font-weight:700}
 .status .turn.black{color:#fff}
 .status .turn.white{color:#4ade80}
@@ -29,14 +29,12 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(74,222,128,.4)}
 .btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.1)}
 .btn-secondary:hover{background:rgba(255,255,255,.15)}
-.score-box{display:flex;justify-content:space-around;padding:6px 0;font-size:.85rem}
+.score-box{display:flex;justify-content:space-around;padding:6px 0 2px;font-size:.85rem}
 .score-box div{display:flex;align-items:center;gap:6px}
 .score-box .dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
 .score-box .dot.black{background:#fff;border-color:#888}
 .score-box .dot.white{background:#4ade80;border-color:#4ade80}
-.waiting{display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px}
-.spinner{width:36px;height:36px;border:4px solid rgba(74,222,128,.2);border-top:4px solid #4ade80;border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
+.spectator-badge{display:inline-block;background:rgba(255,193,7,.15);color:#ffc107;padding:2px 10px;border-radius:999px;font-size:.7rem;font-weight:700}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(74,222,128,.9);color:#0a0a15;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
 @media(max-width:420px){.header h1{font-size:1rem}.status{font-size:.8rem;padding:3px 10px}.overlay h2{font-size:1.3rem}}
@@ -46,17 +44,10 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 <div class="container">
   <div class="header">
     <h1>⚫ OTHELLO ⚪</h1>
-    <div class="status" id="statusBar">Turn: <span class="turn black" id="turnDisplay">● Black</span></div>
+    <div class="status" id="statusBar">Loading...</div>
   </div>
   <div class="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
-    <div class="overlay hidden" id="waitingOverlay">
-      <div class="waiting">
-        <div class="spinner"></div>
-        <h2 style="font-size:1.2rem;margin:0 0 4px">Waiting for opponent...</h2>
-        <p style="font-size:.8rem;color:#888">Searching for a player to match with</p>
-      </div>
-    </div>
     <div class="overlay hidden" id="gameOverOverlay">
       <h2 id="winnerText">🏆 Winner!</h2>
       <p style="font-size:2.2rem;font-weight:800;margin:4px 0" id="scoreText">● 0 — ⚪ 0</p>
@@ -70,26 +61,27 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
     <div><span class="dot black"></span> Black: <span id="blackScore">2</span></div>
     <div><span class="dot white"></span> White: <span id="whiteScore">2</span></div>
   </div>
-  <div id="opponentInfo" style="font-size:.7rem;color:#555;margin-top:4px"></div>
+  <div id="playerInfo" style="font-size:.7rem;color:#555;margin-top:4px"></div>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
 const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
-const turnDisplay=document.getElementById('turnDisplay'),statusBar=document.getElementById('statusBar');
+const statusBar=document.getElementById('statusBar');
 const blackScore=document.getElementById('blackScore'),whiteScore=document.getElementById('whiteScore');
-const waitingOverlay=document.getElementById('waitingOverlay'),gameOverOverlay=document.getElementById('gameOverOverlay');
+const gameOverOverlay=document.getElementById('gameOverOverlay');
 const winnerText=document.getElementById('winnerText'),scoreText=document.getElementById('scoreText');
-const resultText=document.getElementById('resultText'),opponentInfo=document.getElementById('opponentInfo');
+const resultText=document.getElementById('resultText'),playerInfo=document.getElementById('playerInfo');
 const homeBtn=document.getElementById('homeBtn'),toast=document.getElementById('toast');
 
 const tg=window.Telegram?.WebApp;tg?.expand();
 const params=new URLSearchParams(window.location.search);
 const gameId=params.get('game_id');
-const myId=tg?.initDataUnsafe?.user?.id?.toString()||'anon';
-const myName=tg?.initDataUnsafe?.user?.first_name||'Player';
+const myId=tg?.initDataUnsafe?.user?.id?.toString()||null;
+const myName=tg?.initDataUnsafe?.user?.first_name||'Spectator';
+let isSpectator=true,myColor=null;
 
-const SIZE=8;let cellSize,state,myColor,pollTimer,animFrame=0;
+const SIZE=8;let cellSize,state,pollTimer;
 
 function resize(){
   const wrap=canvas.parentElement;
@@ -121,7 +113,7 @@ function draw(){
     ctx.shadowBlur=0;
     if(isLast){ctx.strokeStyle=isBlack?'#ff6b81':'#e94560';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,rad+3,0,Math.PI*2);ctx.stroke()}
   }
-  if(!state.game_over&&state.valid_moves&&myColor===state.turn){
+  if(!state.game_over&&state.valid_moves&&!isSpectator&&myColor===state.turn){
     state.valid_moves.forEach(([r,c])=>{
       const x=c*cs+cs/2,y=r*cs+cs/2;
       ctx.fillStyle='rgba(255,255,255,.25)';ctx.beginPath();ctx.arc(x,y,cs*.12,0,Math.PI*2);ctx.fill()
@@ -130,7 +122,7 @@ function draw(){
 }
 
 function handleClick(cx,cy){
-  if(!state||state.game_over||myColor!==state.turn)return;
+  if(isSpectator||!state||state.game_over||myColor!==state.turn)return;
   const c=Math.floor(cx/cellSize),r=Math.floor(cy/cellSize);
   if(r<0||r>=SIZE||c<0||c>=SIZE)return;
   if(!state.valid_moves.some(([rr,cc])=>rr==r&&cc==c))return;
@@ -154,33 +146,33 @@ async function doMove(r,c){
 function applyState(s){
   state=s;
   blackScore.textContent=s.black_score;whiteScore.textContent=s.white_score;
-  const isMyTurn=myColor===s.turn;
-  turnDisplay.textContent=s.turn==='b'?'● Black':'○ White';
-  turnDisplay.className='turn '+(s.turn==='b'?'black':'white');
-  statusBar.textContent='Turn: ';statusBar.appendChild(turnDisplay);
-  opponentInfo.textContent=s.black?.name+' vs '+s.white?.name;
+  const turnName=s.turn==='b'?s.black?.name:s.white?.name;
   if(s.game_over){
-    gameOverOverlay.classList.remove('hidden');
     const w=s.winner;
-    if(w==='draw'){winnerText.textContent='🤝 Draw!';scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score}
+    if(w==='draw'){statusBar.textContent='🤝 Draw! '+s.black_score+' - '+s.white_score;winnerText.textContent='🤝 Draw!'}
     else{
       const wName=w==='black'?s.black?.name:s.white?.name;
-      const isMe=s.black&&s.white&&myColor===(w==='black'?'b':'w');
+      const isMe=!isSpectator&&myColor===(w==='black'?'b':'w');
       winnerText.textContent=(isMe?'🏆 You Win!':'🏆 '+wName+' Wins!');
-      scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
     }
-    resultText.textContent=s.black_score+' vs '+s.white_score+' · '+SIZE+'×'+SIZE;
+    scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
+    resultText.textContent=s.black_score+' vs '+s.white_score;
+    gameOverOverlay.classList.remove('hidden');
     stopPolling();
-  }else if(!s.valid_moves||s.valid_moves.length===0){
+    return;
+  }
+  statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+(isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
+  if(!isSpectator&&myColor===s.turn&&(!s.valid_moves||s.valid_moves.length===0)){
     showToast('⏭ No moves — turn passed');
   }
+  playerInfo.textContent=s.black?.name+' (●) vs '+s.white?.name+' (○)';
   draw();
 }
 
 async function pollState(){
   if(!gameId)return;
   try{
-    const res=await fetch('/api/othello/state?game_id='+gameId+'&user_id='+myId);
+    const res=await fetch('/api/othello/state?game_id='+gameId+'&user_id='+(myId||''));
     const data=await res.json();
     if(data)applyState(data);
   }catch(e){}
@@ -190,22 +182,18 @@ function startPolling(){pollTimer=setInterval(pollState,2000)}
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 
 async function init(){
-  if(!gameId){showToast('❌ No game ID');return}
-  waitingOverlay.classList.remove('hidden');
-  tg?.ready();
-  const res=await fetch('/api/othello/state?game_id='+gameId+'&user_id='+myId);
+  if(!gameId){statusBar.textContent='❌ No game ID';return}
+  const res=await fetch('/api/othello/state?game_id='+gameId+'&user_id='+(myId||''));
   const data=await res.json();
-  if(!data){showToast('❌ Game not found');return}
-  if(data.black?.id===myId)myColor='b';
-  else if(data.white?.id===myId)myColor='w';
-  else{showToast('❌ Not your game');return}
-  waitingOverlay.classList.add('hidden');
+  if(!data||!data.board){statusBar.textContent='❌ Game not found';return}
+  if(myId&&data.black?.id===myId){myColor='b';isSpectator=false}
+  else if(myId&&data.white?.id===myId){myColor='w';isSpectator=false}
+  if(isSpectator)statusBar.innerHTML='<span class="spectator-badge">👀 Watching</span>';
   applyState(data);
   startPolling();
 }
 
 function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),1500)}
-
 homeBtn.addEventListener('click',()=>{stopPolling();gameOverOverlay.classList.add('hidden')});
 init();resize();
 </script>

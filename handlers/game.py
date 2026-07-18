@@ -112,6 +112,20 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             g = othello_game.games[gid]
             url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
             p1, p2 = g['black'], g['white']
+
+            # Notify the group (spectators)
+            watch_url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⚫ **Othello Started!**\n\n{p1['name']} (●) vs {p2['name']} (○)\n\nClick to watch the game:",
+                api_kwargs={
+                    "reply_markup": {"inline_keyboard": [[
+                        {"text": "👀 Watch Game", "url": watch_url}
+                    ]]}
+                }
+            )
+
+            # Notify each player privately
             for player, opp_name, sym, color in [
                 (p1, p2['name'], "○", "Black"),
                 (p2, p1['name'], "●", "White"),
