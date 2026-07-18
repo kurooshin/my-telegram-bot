@@ -11,7 +11,7 @@ import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
-from handlers.game import game_handler, tello_handler, leaderboard_handler
+from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler
 import othello_game
 
 logging.basicConfig(
@@ -109,6 +109,7 @@ async def main():
     application.add_handler(say_handler)
     application.add_handler(game_handler)
     application.add_handler(tello_handler)
+    application.add_handler(othello_callback_handler)
     application.add_handler(leaderboard_handler)
     application.add_handler(keyword_handler)
 

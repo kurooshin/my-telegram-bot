@@ -1,6 +1,6 @@
 import logging
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, filters
+from telegram import Update, InlineKeyboardButton
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, filters
 import config
 import database
 import othello_game
@@ -18,13 +18,13 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text="🎮 **Game Hub**\n\n"
                  "🐍 **Snake** — classic single-player\n"
-                 "➡ Click below to play\n\n"
-                 "⚫ **Othello (Reversi)** — 2-player matchmaking\n"
-                 "➡ Use /tello to find an opponent",
+                 "⚫ **Othello** — 2-player matchmaking",
             api_kwargs={
                 "reply_markup": {
                     "inline_keyboard": [[
-                        game_button("🐍 Play Snake", f"{base}/game", True, ct)
+                        game_button("🐍 Snake", f"{base}/game", True, ct)
+                    ], [
+                        {"text": "⚫ Join Othello", "callback_data": "othello_join"}
                     ]]
                 }
             }
@@ -39,36 +39,76 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         uid = str(user.id)
         name = user.first_name or "Player"
         chat_id = update.effective_chat.id
+        await show_othello_menu(context, chat_id, uid, name)
+    except Exception as e:
+        logging.error(f"Tello command error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
 
+async def show_othello_menu(context, chat_id, uid, name):
+    # Check if in an active game
+    for gid, g in list(othello_game.games.items()):
+        if g['black']['id'] == uid or g['white']['id'] == uid:
+            base = config.WEBHOOK_URL
+            url = f"{base}/tello?game_id={gid}"
+            btn = game_button("⚫ Continue Game", url, True, "private")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="⚫ You already have an active Othello game!",
+                api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
+            )
+            return
+
+    in_queue = any(q['user_id'] == uid for q in othello_game.waiting_queue)
+
+    if in_queue:
+        text = "⏳ You're in the Othello queue!\n\nWaiting for an opponent to join..."
+        buttons = [[{"text": "❌ Leave Queue", "callback_data": "othello_leave"}]]
+    else:
+        text = "⚫ **Othello (Reversi)**\n\n2-player matchmaking\nClick Join to find an opponent:"
+        buttons = [[{"text": "✅ Join Queue", "callback_data": "othello_join"}]]
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
+    )
+
+async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user = update.effective_user
+    uid = str(user.id)
+    name = user.first_name or "Player"
+    chat_id = update.effective_chat.id
+
+    data = query.data
+
+    if data == "othello_join":
         # Check if already in a game
         for gid, g in list(othello_game.games.items()):
             if g['black']['id'] == uid or g['white']['id'] == uid:
-                base = config.WEBHOOK_URL
-                url = f"{base}/tello?game_id={gid}"
-                ct = update.effective_chat.type
-                btn = game_button("⚫ Continue Game", url, True, ct)
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="⚫ You already have an active Othello game!",
-                    api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
-                )
+                await query.edit_message_text("⚫ You already have an active Othello game!")
                 return
 
-        # Check if already in queue
         if any(q['user_id'] == uid for q in othello_game.waiting_queue):
-            await update.message.reply_text("⏳ You're already in the queue! Waiting for an opponent...")
+            await query.edit_message_text("⏳ You're already in the queue!")
             return
 
-        # Join queue
         othello_game.waiting_queue.append({'user_id': uid, 'name': name, 'chat_id': chat_id})
-        await update.message.reply_text("⏳ Searching for an Othello opponent...\n\nYou'll be notified when a match is found.")
+        await query.edit_message_text(
+            "⏳ Joined the Othello queue!\n\nWaiting for an opponent...\n\nUse /tello to check status.",
+            api_kwargs={
+                "reply_markup": {"inline_keyboard": [[
+                    {"text": "❌ Leave Queue", "callback_data": "othello_leave"}
+                ]]}
+            }
+        )
 
         # Try to match
         if len(othello_game.waiting_queue) >= 2:
             p1 = othello_game.waiting_queue.pop(0)
             p2 = othello_game.waiting_queue.pop(0)
 
-            # Check if they're the same user (shouldn't happen but just in case)
             if p1['user_id'] == p2['user_id']:
                 othello_game.waiting_queue.insert(0, p1)
                 return
@@ -77,21 +117,41 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             base = config.WEBHOOK_URL
             url = f"{base}/tello?game_id={gid}"
 
-            for p in [p1, p2]:
-                ct = "private"
-                btn = game_button("⚫ Play Othello", url, True, ct)
-                try:
-                    await context.bot.send_message(
-                        chat_id=p['chat_id'],
-                        text=f"⚫ **Match Found!**\n\n{p1['name']} (●) vs {p2['name']} (○)\n\nClick below to play:",
-                        api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
-                    )
-                except Exception as e:
-                    logging.error(f"Failed to notify player {p['user_id']}: {e}")
+            # Notify p1
+            try:
+                opp_name = p2['name']
+                your_color = "● Black"
+                await context.bot.send_message(
+                    chat_id=p1['chat_id'],
+                    text=f"⚫ **Match Found!**\n\n{opp_name} (○) vs **You** ({your_color})\n\nClick below to play:",
+                    api_kwargs={
+                        "reply_markup": {"inline_keyboard": [[
+                            game_button("⚫ Play Othello", url, True, "private")
+                        ]]}
+                    }
+                )
+            except Exception as e:
+                logging.error(f"Failed to notify {p1['user_id']}: {e}")
 
-    except Exception as e:
-        logging.error(f"Tello command error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
+            # Notify p2
+            try:
+                opp_name = p1['name']
+                your_color = "○ White"
+                await context.bot.send_message(
+                    chat_id=p2['chat_id'],
+                    text=f"⚫ **Match Found!**\n\n{opp_name} (●) vs **You** ({your_color})\n\nClick below to play:",
+                    api_kwargs={
+                        "reply_markup": {"inline_keyboard": [[
+                            game_button("⚫ Play Othello", url, True, "private")
+                        ]]}
+                    }
+                )
+            except Exception as e:
+                logging.error(f"Failed to notify {p2['user_id']}: {e}")
+
+    elif data == "othello_leave":
+        othello_game.waiting_queue[:] = [q for q in othello_game.waiting_queue if q['user_id'] != uid]
+        await query.edit_message_text("✅ Left the Othello queue.\n\nUse /tello or /game to join again.")
 
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -111,4 +171,5 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 game_handler = CommandHandler("game", game_command)
 tello_handler = CommandHandler("tello", tello_command)
+othello_callback_handler = CallbackQueryHandler(othello_callback, pattern="^othello_")
 leaderboard_handler = CommandHandler("leaderboard", leaderboard_command)
