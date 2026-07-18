@@ -1,9 +1,8 @@
 import secrets
-import logging
 
 SIZE = 8
 
-waiting_queue = []
+lobbies = {}
 games = {}
 
 def new_board():
@@ -46,6 +45,55 @@ def counts(board):
     b = sum(row.count('b') for row in board)
     w = sum(row.count('w') for row in board)
     return b, w
+
+def lobby_text(chat_id):
+    lobby = lobbies.get(chat_id)
+    if not lobby:
+        return "⚫ **Othello Lobby**\n\nNo players yet."
+    players = lobby['players']
+    if not players:
+        return "⚫ **Othello Lobby**\n\nNo players yet."
+    body = "\n".join(f"{i+1}. {p['name']}" for i, p in enumerate(players))
+    return f"⚫ **Othello Lobby**\n\nPlayers ({len(players)}/2):\n{body}"
+
+def lobby_buttons():
+    return [
+        [{"text": "✅ Join", "callback_data": "oth_join"},
+         {"text": "❌ Leave", "callback_data": "oth_leave"}]
+    ]
+
+def get_or_create_lobby(chat_id, user_id=None, user_name=None):
+    if chat_id not in lobbies:
+        lobbies[chat_id] = {'players': [], 'message_id': None}
+    return lobbies[chat_id]
+
+def lobby_add(chat_id, user_id, user_name):
+    lobby = get_or_create_lobby(chat_id)
+    if len(lobby['players']) >= 2:
+        return False, "Lobby is full."
+    if any(p['id'] == user_id for p in lobby['players']):
+        return False, "You're already in the lobby."
+    lobby['players'].append({'id': user_id, 'name': user_name})
+    return True, None
+
+def lobby_remove(chat_id, user_id):
+    lobby = lobbies.get(chat_id)
+    if not lobby:
+        return False, "No lobby."
+    before = len(lobby['players'])
+    lobby['players'] = [p for p in lobby['players'] if p['id'] != user_id]
+    if len(lobby['players']) == before:
+        return False, "You're not in the lobby."
+    return True, None
+
+def check_match(chat_id):
+    lobby = lobbies.get(chat_id)
+    if not lobby or len(lobby['players']) < 2:
+        return None
+    p1, p2 = lobby['players'][0], lobby['players'][1]
+    gid = create_game(p1['id'], p1['name'], p2['id'], p2['name'])
+    del lobbies[chat_id]
+    return gid
 
 def create_game(black_id, black_name, white_id, white_name):
     gid = secrets.token_hex(8)
