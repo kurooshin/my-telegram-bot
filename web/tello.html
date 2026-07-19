@@ -281,8 +281,14 @@ chatSend.addEventListener('click',sendChat);
 
 async function init(){
   if(!gameId){statusBar.textContent='❌ No game ID';return}
-  const res=await fetch('/api/othello/state?game_id='+gameId);
-  const data=await res.json();
+  let data;
+  try{
+    const res=await fetch('/api/othello/state?game_id='+gameId);
+    data=await res.json();
+  }catch(e){
+    statusBar.textContent='❌ Failed to load game';
+    return;
+  }
   if(!data||!data.board){statusBar.textContent='❌ Game not found';return}
 
   state=data;
@@ -319,11 +325,15 @@ async function init(){
 }
 
 function pickPlayer(color){
+  if(!state||!state[color==='b'?'black':'white']){
+    showToast('⏳ Loading game state...');
+    return;
+  }
   myColor=color;isSpectator=false;
   myName=color==='b'?state.black.name:state.white.name;
   if(!myId)myId=color==='b'?'black':'white';
   pickerOverlay.classList.add('hidden');
-  chatInputWrap.style.display='flex';
+  if(chatInputWrap)chatInputWrap.style.display='flex';
   showToast('Playing as '+(color==='b'?'Black':'White'));
   draw();
 }
