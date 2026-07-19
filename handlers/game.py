@@ -1,12 +1,13 @@
 import asyncio
 import logging
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import config
 import database
 import othello_game
 
 lobby_tasks = {}
+BOT_USERNAME = None
 
 async def _lobby_timeout(chat_id, bot):
     try:
@@ -14,6 +15,7 @@ async def _lobby_timeout(chat_id, bot):
         lobby = othello_game.lobbies.get(chat_id)
         if lobby and len(lobby['players']) < 2:
             del othello_game.lobbies[chat_id]
+            await database.delete_othello_lobby(chat_id)
             await bot.send_message(
                 chat_id=chat_id,
                 text="⏰ **Time up!** Not enough players joined. Lobby closed.\n\nUse /game or /tello to start a new one."
@@ -42,6 +44,26 @@ def lobby_markup():
         [{"text": "✅ Join", "callback_data": "oth_join"},
          {"text": "❌ Leave", "callback_data": "oth_leave"}]
     ]}
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text or ""
+    parts = text.split()
+    if len(parts) >= 2 and parts[1].startswith("othello_"):
+        gid = parts[1][8:]
+        g = othello_game.games.get(gid)
+        if not g:
+            await update.message.reply_text("❌ Game not found or already finished.")
+            return
+        url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
+        btn = game_button("⚫ Play Othello", url, True, "private")
+        await update.message.reply_text(
+            f"⚫ Othello Game\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to play:",
+            api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
+        )
+    else:
+        await update.message.reply_text(
+            "🎮 **Game Hub**\n\nUse /game to see available games."
+        )
 
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -83,7 +105,7 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         othello_game.get_or_create_lobby(chat_id)
         schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
-        await context.bot.send_message(
+        msg = await context.bot.send_message(
             chat_id=chat_id, text=text,
             api_kwargs={"reply_markup": lobby_markup()}
         )
@@ -123,7 +145,6 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         ok, err = othello_game.lobby_add(chat_id, uid, name)
         text = othello_game.lobby_text(chat_id)
-
         try:
             await query.edit_message_text(
                 text=text,
@@ -134,22 +155,24 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=chat_id, text=text,
                 api_kwargs={"reply_markup": lobby_markup()}
             )
-
         if not ok:
             return
 
-        gid = othello_game.check_match(chat_id)
+        await database.save_othello_lobby(chat_id, othello_game.lobbies.get(chat_id, {}).get('players', []))
+
+        gid = await othello_game.check_match(chat_id)
         if gid:
             cancel_lobby_timeout(chat_id)
+            await database.delete_othello_lobby(chat_id)
             g = othello_game.games[gid]
-            url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
+            deep_link = f"https://t.me/{BOT_USERNAME}?start=othello_{gid}"
 
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚫ **Othello Started!**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to play or watch:",
+                text=f"⚫ **Othello Started!**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick to enter the game (opens in private chat):",
                 api_kwargs={
                     "reply_markup": {"inline_keyboard": [[
-                        {"text": "⚫ Open Game", "url": url}
+                        {"text": "⚫ Play Othello", "url": deep_link}
                     ]]}
                 }
             )
@@ -159,6 +182,9 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lobby = othello_game.lobbies.get(chat_id)
         if not lobby or not lobby['players']:
             cancel_lobby_timeout(chat_id)
+            await database.delete_othello_lobby(chat_id)
+        else:
+            await database.save_othello_lobby(chat_id, lobby['players'])
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -191,3 +217,4 @@ game_handler = CommandHandler("game", game_command)
 tello_handler = CommandHandler("tello", tello_command)
 othello_callback_handler = CallbackQueryHandler(othello_callback, pattern="^oth_")
 leaderboard_handler = CommandHandler("leaderboard", leaderboard_command)
+start_handler = CommandHandler("start", start_command)

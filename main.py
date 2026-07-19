@@ -11,7 +11,8 @@ import database
 from handlers.admin_panel import panel_conversation
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
-from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler
+from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler, start_handler
+from handlers.game import BOT_USERNAME as _game_bot_username
 import othello_game
 
 logging.basicConfig(
@@ -77,7 +78,6 @@ class LeaderboardHandler(tornado.web.RequestHandler):
 class OthelloStateHandler(tornado.web.RequestHandler):
     def get(self):
         gid = self.get_query_argument('game_id', None)
-        uid = self.get_query_argument('user_id', None)
         self.set_header('Content-Type', 'application/json')
         if not gid:
             self.write(json.dumps(None))
@@ -94,7 +94,7 @@ class OthelloMoveHandler(tornado.web.RequestHandler):
             uid = body.get('user_id')
             r = int(body.get('row'))
             c = int(body.get('col'))
-            state = othello_game.make_move(gid, uid, r, c)
+            state = await othello_game.make_move(gid, uid, r, c)
             self.write(json.dumps(state, ensure_ascii=False, default=str))
         except Exception as e:
             logging.error(f"Othello move error: {e}")
@@ -104,17 +104,29 @@ class OthelloMoveHandler(tornado.web.RequestHandler):
 async def main():
     await database.init_db()
 
+    # Restore games and lobbies from DB
+    await othello_game.restore_games()
+    await othello_game.restore_lobbies()
+    logging.info(f"Restored {len(othello_game.games)} Othello games and {len(othello_game.lobbies)} lobbies from DB")
+
     application = Application.builder().token(config.TOKEN).build()
     application.add_handler(panel_conversation)
     application.add_handler(say_handler)
     application.add_handler(game_handler)
     application.add_handler(tello_handler)
     application.add_handler(othello_callback_handler)
+    application.add_handler(start_handler)
     application.add_handler(leaderboard_handler)
     application.add_handler(keyword_handler)
 
     await application.initialize()
     await application.start()
+
+    # Get bot username for deep links
+    me = await application.bot.get_me()
+    import handlers.game
+    handlers.game.BOT_USERNAME = me.username
+    logging.info(f"Bot username: {me.username}")
 
     port_number = int(os.environ.get("PORT", 8080))
     webhook_path = "/webhook"

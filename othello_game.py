@@ -1,4 +1,6 @@
 import secrets
+import json
+import database
 
 SIZE = 8
 
@@ -48,13 +50,10 @@ def counts(board):
 
 def lobby_text(chat_id):
     lobby = lobbies.get(chat_id)
-    if not lobby:
+    if not lobby or not lobby['players']:
         return "⚫ **Othello Lobby**\n\nNo players yet."
-    players = lobby['players']
-    if not players:
-        return "⚫ **Othello Lobby**\n\nNo players yet."
-    body = "\n".join(f"{i+1}. {p['name']}" for i, p in enumerate(players))
-    return f"⚫ **Othello Lobby**\n\nPlayers ({len(players)}/2):\n{body}"
+    body = "\n".join(f"{i+1}. {p['name']}" for i, p in enumerate(lobby['players']))
+    return f"⚫ **Othello Lobby**\n\nPlayers ({len(lobby['players'])}/2):\n{body}"
 
 def lobby_buttons():
     return [
@@ -86,19 +85,20 @@ def lobby_remove(chat_id, user_id):
         return False, "You're not in the lobby."
     return True, None
 
-def check_match(chat_id):
+async def check_match(chat_id):
     lobby = lobbies.get(chat_id)
     if not lobby or len(lobby['players']) < 2:
         return None
     p1, p2 = lobby['players'][0], lobby['players'][1]
-    gid = create_game(p1['id'], p1['name'], p2['id'], p2['name'])
+    gid = await create_game(p1['id'], p1['name'], p2['id'], p2['name'])
     del lobbies[chat_id]
     return gid
 
-def create_game(black_id, black_name, white_id, white_name):
+async def create_game(black_id, black_name, white_id, white_name):
     gid = secrets.token_hex(8)
-    games[gid] = {
-        'board': new_board(),
+    board = new_board()
+    g = {
+        'board': board,
         'turn': 'b',
         'black': {'id': black_id, 'name': black_name},
         'white': {'id': white_id, 'name': white_name},
@@ -106,6 +106,8 @@ def create_game(black_id, black_name, white_id, white_name):
         'winner': None,
         'last_move': None,
     }
+    games[gid] = g
+    await database.save_othello_game(gid, board, 'b', black_id, black_name, white_id, white_name)
     return gid
 
 def get_state(gid):
@@ -136,7 +138,7 @@ def get_state(gid):
         'valid_moves': [list(m) for m in valid],
     }
 
-def make_move(gid, user_id, r, c):
+async def make_move(gid, user_id, r, c):
     g = games.get(gid)
     if not g or g['game_over']:
         return None
@@ -154,4 +156,37 @@ def make_move(gid, user_id, r, c):
     apply_move(board, r, c, color)
     g['last_move'] = (r, c)
     g['turn'] = 'w' if color == 'b' else 'b'
+
+    b, w = counts(board)
+    if not valid_moves(board, g['turn']):
+        opp = 'w' if g['turn'] == 'b' else 'b'
+        if not valid_moves(board, opp):
+            g['game_over'] = True
+            g['winner'] = 'draw' if b == w else ('black' if b > w else 'white')
+
+    await database.save_othello_game(
+        gid, board, g['turn'],
+        g['black']['id'], g['black']['name'],
+        g['white']['id'], g['white']['name'],
+        g['game_over'], g['winner'], g['last_move']
+    )
     return get_state(gid)
+
+async def restore_games():
+    rows = await database.load_othello_games()
+    for row in rows:
+        gid = row['game_id']
+        games[gid] = {
+            'board': row['board'],
+            'turn': row['turn'],
+            'black': {'id': row['black_id'], 'name': row['black_name']},
+            'white': {'id': row['white_id'], 'name': row['white_name']},
+            'game_over': row['game_over'],
+            'winner': row['winner'],
+            'last_move': row['last_move'],
+        }
+
+async def restore_lobbies():
+    rows = await database.load_othello_lobbies()
+    for row in rows:
+        lobbies[row['chat_id']] = {'players': row['players']}

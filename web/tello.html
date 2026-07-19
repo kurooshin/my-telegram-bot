@@ -28,7 +28,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .overlay h2{font-size:1.5rem;margin-bottom:4px;color:#4ade80}
 .overlay p{color:#888;font-size:.85rem;margin-bottom:12px}
 .btn-group{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s}
 .btn-primary{background:linear-gradient(135deg,#4ade80,#22c55e);color:#0a0a15;box-shadow:0 4px 15px rgba(74,222,128,.3)}
 .btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.1)}
 .score-box{display:flex;justify-content:space-around;padding:6px 0 2px;font-size:.85rem}
@@ -164,15 +164,11 @@ function applyState(s){
       winnerText.textContent=(isMe?'🏆 You Win!':'🏆 '+wName+' Wins!');
     }
     scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
-    resultText.textContent=s.black_score+' vs '+s.white_score;
     gameOverOverlay.classList.remove('hidden');
     stopPolling();
     return;
   }
   statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+(isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
-  if(!isSpectator&&myColor===s.turn&&(!s.valid_moves||s.valid_moves.length===0)){
-    showToast('⏭ No moves — turn passed');
-  }
   playerInfo.textContent=s.black?.name+' (●) vs '+s.white?.name+' (○)';
   draw();
 }
@@ -182,7 +178,7 @@ async function pollState(){
   try{
     const res=await fetch('/api/othello/state?game_id='+gameId);
     const data=await res.json();
-    if(data)applyState(data);
+    if(data&&data.board)applyState(data);
   }catch(e){}
 }
 
@@ -197,33 +193,33 @@ async function init(){
 
   state=data;
 
-  // Try Telegram Mini App first
+  // Try Mini App auto-identify
   if(tg&&myId){
     if(data.black?.id===myId){myColor='b';isSpectator=false}
     else if(data.white?.id===myId){myColor='w';isSpectator=false}
-    if(!isSpectator){pickerOverlay.classList.add('hidden');applyState(data);startPolling();return}
+    if(!isSpectator){pickerOverlay.classList.add('hidden');applyState(data);startPolling();tg?.ready();return}
+    // Known user but not a player → spectator
+    pickerOverlay.classList.add('hidden');isSpectator=true;applyState(data);startPolling();return
   }
 
-  // Show picker for browser users
-  pickBlack.textContent='● '+ (data.black?.name||'Black');
-  pickWhite.textContent='○ '+ (data.white?.name||'White');
+  // Browser fallback → show picker
+  pickBlack.textContent='● '+(data.black?.name||'Black');
+  pickWhite.textContent='○ '+(data.white?.name||'White');
   applyState(data);
   startPolling();
 }
 
 function pickPlayer(color){
-  myColor=color;
-  isSpectator=false;
+  myColor=color;isSpectator=false;
   pickerOverlay.classList.add('hidden');
-  showToast('You are playing as '+(color==='b'?'Black':'White'));
+  showToast('Playing as '+(color==='b'?'Black':'White'));
   draw();
 }
 
 pickBlack.addEventListener('click',()=>pickPlayer('b'));
 pickWhite.addEventListener('click',()=>pickPlayer('w'));
-pickSpec.addEventListener('click',()=>{pickerOverlay.classList.add('hidden');isSpectator=true;showToast('👀 Watching as spectator')});
+pickSpec.addEventListener('click',()=>{pickerOverlay.classList.add('hidden');isSpectator=true;showToast('👀 Watching')});
 homeBtn.addEventListener('click',()=>{stopPolling();gameOverOverlay.classList.add('hidden')});
-
 function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),1500)}
 init();resize();
 </script>

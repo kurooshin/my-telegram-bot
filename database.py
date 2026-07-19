@@ -64,6 +64,71 @@ async def init_db():
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS othello_games (
+                game_id TEXT PRIMARY KEY,
+                board JSONB NOT NULL,
+                turn TEXT NOT NULL,
+                black_id TEXT NOT NULL,
+                black_name TEXT NOT NULL,
+                white_id TEXT NOT NULL,
+                white_name TEXT NOT NULL,
+                game_over BOOLEAN DEFAULT FALSE,
+                winner TEXT,
+                last_move JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS othello_lobbies (
+                chat_id BIGINT PRIMARY KEY,
+                players JSONB NOT NULL DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+async def save_othello_game(game_id, board, turn, black_id, black_name, white_id, white_name, game_over=False, winner=None, last_move=None):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO othello_games (game_id, board, turn, black_id, black_name, white_id, white_name, game_over, winner, last_move)
+            VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+            ON CONFLICT (game_id) DO UPDATE SET
+                board = $2::jsonb, turn = $3, game_over = $8, winner = $9, last_move = $10::jsonb
+        """, game_id, json.dumps(board), turn, black_id, black_name, white_id, white_name, game_over, winner, json.dumps(last_move) if last_move else None)
+
+async def load_othello_games():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM othello_games WHERE game_over = FALSE")
+        return rows
+
+async def delete_othello_game(game_id):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM othello_games WHERE game_id = $1", game_id)
+
+async def save_othello_lobby(chat_id, players):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO othello_lobbies (chat_id, players)
+            VALUES ($1, $2::jsonb)
+            ON CONFLICT (chat_id) DO UPDATE SET players = $2::jsonb
+        """, chat_id, json.dumps(players))
+
+async def delete_othello_lobby(chat_id):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM othello_lobbies WHERE chat_id = $1", chat_id)
+
+async def load_othello_lobbies():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM othello_lobbies")
+        return rows
+
 async def get_role(user_id: int) -> str:
     pool = await get_pool()
     async with pool.acquire() as conn:
