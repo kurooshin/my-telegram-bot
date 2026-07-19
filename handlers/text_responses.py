@@ -12,7 +12,7 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     pool = await database.get_pool()
     async with pool.acquire() as conn:
-        # ۱. مدیریت پیام‌های ارسالی در گروه‌ها و سوپرگروه‌ها
+        # Track messages in groups / supergroups
         if chat.type in ["group", "supergroup"]:
             try:
                 await conn.execute('''
@@ -28,7 +28,7 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        # ۲. بررسی کلمات کلیدی (exact یا flexible براساس match_type)
+        # Keyword matching (exact or flexible by match_type)
         row = await conn.fetchrow('''
             SELECT response FROM bot_keywords WHERE
                 (match_type = 'exact' AND LOWER(keyword) = LOWER($1))

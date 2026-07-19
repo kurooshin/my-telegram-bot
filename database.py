@@ -1,4 +1,5 @@
 # database.py
+import json
 import asyncpg
 import config
 
@@ -10,17 +11,15 @@ def normalize_persian(text: str) -> str:
 
 _pool = None
 
-async def get_pool():
+async def get_pool() -> asyncpg.Pool:
+    """Return the shared connection pool, creating it on first call."""
     global _pool
     if _pool is None:
         _pool = await asyncpg.create_pool(config.DB_URI, min_size=2, max_size=10, statement_cache_size=0)
     return _pool
 
-async def get_db_connection():
-    pool = await get_pool()
-    return await pool.acquire()
-
-async def init_db():
+async def init_db() -> None:
+    """Create all required tables if they don't exist, and seed the admin account."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
@@ -88,7 +87,14 @@ async def init_db():
             )
         ''')
 
-async def save_othello_game(game_id, board, turn, black_id, black_name, white_id, white_name, game_over=False, winner=None, last_move=None):
+async def save_othello_game(
+    game_id: str, board: list, turn: str,
+    black_id: str, black_name: str,
+    white_id: str, white_name: str,
+    game_over: bool = False, winner: str | None = None,
+    last_move: tuple | list | None = None
+) -> None:
+    """Insert or update an Othello game record."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
@@ -98,18 +104,21 @@ async def save_othello_game(game_id, board, turn, black_id, black_name, white_id
                 board = $2::jsonb, turn = $3, game_over = $8, winner = $9, last_move = $10::jsonb
         """, game_id, json.dumps(board), turn, black_id, black_name, white_id, white_name, game_over, winner, json.dumps(last_move) if last_move else None)
 
-async def load_othello_games():
+async def load_othello_games() -> list[asyncpg.Record]:
+    """Return all unfinished Othello games from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM othello_games WHERE game_over = FALSE")
         return rows
 
-async def delete_othello_game(game_id):
+async def delete_othello_game(game_id: str) -> None:
+    """Remove an Othello game record from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM othello_games WHERE game_id = $1", game_id)
 
-async def save_othello_lobby(chat_id, players):
+async def save_othello_lobby(chat_id: int, players: list[dict]) -> None:
+    """Insert or update an Othello lobby record."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
@@ -118,12 +127,14 @@ async def save_othello_lobby(chat_id, players):
             ON CONFLICT (chat_id) DO UPDATE SET players = $2::jsonb
         """, chat_id, json.dumps(players))
 
-async def delete_othello_lobby(chat_id):
+async def delete_othello_lobby(chat_id: int) -> None:
+    """Remove an Othello lobby record from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM othello_lobbies WHERE chat_id = $1", chat_id)
 
-async def load_othello_lobbies():
+async def load_othello_lobbies() -> list[asyncpg.Record]:
+    """Return all Othello lobby records from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM othello_lobbies")
@@ -135,7 +146,8 @@ async def get_role(user_id: int) -> str:
         row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
         return row['role'] if row else None
 
-async def submit_score(user_id: str, user_name: str, score: int):
+async def submit_score(user_id: str, user_name: str, score: int) -> bool:
+    """Submit a Snake score. Returns True if it's a new personal best."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute('INSERT INTO snake_scores (user_id, user_name, score) VALUES ($1, $2, $3)', user_id, user_name, score)
@@ -145,7 +157,8 @@ async def submit_score(user_id: str, user_name: str, score: int):
         )
         return old_best is None or score > old_best
 
-async def get_leaderboard(limit: int = 10):
+async def get_leaderboard(limit: int = 10) -> list[dict]:
+    """Return the top Snake scores, each player's best score only."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(

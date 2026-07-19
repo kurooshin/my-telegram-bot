@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import Application
 import config
 import database
-from handlers.admin_panel import panel_conversation
+from handlers.admin_panel import panel_conversation, toggle_group_handler
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
 from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler, start_handler
@@ -146,6 +146,7 @@ async def main():
 
     application = Application.builder().token(config.TOKEN).build()
     application.add_handler(panel_conversation)
+    application.add_handler(toggle_group_handler)
     application.add_handler(say_handler)
     application.add_handler(game_handler)
     application.add_handler(tello_handler)
