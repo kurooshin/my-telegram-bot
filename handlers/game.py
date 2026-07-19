@@ -144,6 +144,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         ok, err = othello_game.lobby_add(chat_id, uid, name)
+        # Reset timeout on each join
+        schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -162,8 +164,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gid = await othello_game.check_match(chat_id)
         if gid:
-            cancel_lobby_timeout(chat_id)
-            await database.delete_othello_lobby(chat_id)
+            # Lobby stays active for more games
+            await database.save_othello_lobby(chat_id, othello_game.lobbies.get(chat_id, {}).get('players', []))
             g = othello_game.games[gid]
             deep_link = f"https://t.me/{BOT_USERNAME}?start=othello_{gid}"
 

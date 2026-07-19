@@ -55,7 +55,7 @@ def lobby_text(chat_id):
     if not lobby or not lobby['players']:
         return "⚫ **Othello Lobby**\n\nNo players yet."
     body = "\n".join(f"{i+1}. {p['name']}" for i, p in enumerate(lobby['players']))
-    return f"⚫ **Othello Lobby**\n\nPlayers ({len(lobby['players'])}/2):\n{body}"
+    return f"⚫ **Othello Lobby**\n\nPlayers ({len(lobby['players'])}):\n{body}"
 
 def lobby_buttons():
     return [
@@ -70,8 +70,6 @@ def get_or_create_lobby(chat_id):
 
 def lobby_add(chat_id, user_id, user_name):
     lobby = get_or_create_lobby(chat_id)
-    if len(lobby['players']) >= 2:
-        return False, "Lobby is full."
     if any(p['id'] == user_id for p in lobby['players']):
         return False, "You're already in the lobby."
     lobby['players'].append({'id': user_id, 'name': user_name})
@@ -93,7 +91,7 @@ async def check_match(chat_id):
         return None
     p1, p2 = lobby['players'][0], lobby['players'][1]
     gid = await create_game(p1['id'], p1['name'], p2['id'], p2['name'])
-    del lobbies[chat_id]
+    lobby['players'] = [p for p in lobby['players'] if p['id'] != p1['id'] and p['id'] != p2['id']]
     return gid
 
 async def create_game(black_id, black_name, white_id, white_name):
