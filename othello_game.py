@@ -6,6 +6,8 @@ SIZE = 8
 
 lobbies = {}
 games = {}
+chat_messages: dict[str, list[dict]] = {}
+MAX_CHAT = 100
 
 def new_board():
     b = [[None]*SIZE for _ in range(SIZE)]
@@ -171,6 +173,22 @@ async def make_move(gid, user_id, r, c):
         g['game_over'], g['winner'], g['last_move']
     )
     return get_state(gid)
+
+def add_chat_message(gid, user_id, name, text):
+    if gid not in chat_messages:
+        chat_messages[gid] = []
+    import time
+    chat_messages[gid].append({
+        'user_id': user_id,
+        'name': name,
+        'text': text[:500],
+        'ts': int(time.time())
+    })
+    if len(chat_messages[gid]) > MAX_CHAT:
+        chat_messages[gid] = chat_messages[gid][-MAX_CHAT:]
+
+def get_chat_messages(gid):
+    return chat_messages.get(gid, [])
 
 async def restore_games():
     rows = await database.load_othello_games()

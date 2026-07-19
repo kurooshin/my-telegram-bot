@@ -101,6 +101,41 @@ class OthelloMoveHandler(tornado.web.RequestHandler):
             self.set_status(400)
             self.write(json.dumps(None))
 
+class OthelloChatHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.set_header('Content-Type', 'application/json')
+        gid = self.get_query_argument('game_id', None)
+        if not gid:
+            self.write(json.dumps([]))
+            return
+        msgs = othello_game.get_chat_messages(gid)
+        self.write(json.dumps(msgs, ensure_ascii=False, default=str))
+
+    async def post(self):
+        self.set_header('Content-Type', 'application/json')
+        try:
+            body = json.loads(self.request.body)
+            gid = body.get('game_id')
+            uid = body.get('user_id')
+            name = body.get('name', 'Player')[:30]
+            text = body.get('text', '').strip()
+            if not gid or not text:
+                self.write(json.dumps({'ok': False}))
+                return
+            g = othello_game.games.get(gid)
+            if not g or g['game_over']:
+                self.write(json.dumps({'ok': False}))
+                return
+            if uid != g['black']['id'] and uid != g['white']['id'] and uid != 'black' and uid != 'white':
+                self.write(json.dumps({'ok': False}))
+                return
+            othello_game.add_chat_message(gid, uid, name, text)
+            self.write(json.dumps({'ok': True}))
+        except Exception as e:
+            logging.error(f"Othello chat error: {e}")
+            self.set_status(400)
+            self.write(json.dumps({'ok': False}))
+
 async def main():
     await database.init_db()
 
@@ -139,6 +174,7 @@ async def main():
         ("/tello", TelloHandler),
         ("/api/othello/state", OthelloStateHandler),
         ("/api/othello/move", OthelloMoveHandler),
+        ("/api/othello/chat", OthelloChatHandler),
         ("/api/leaderboard", LeaderboardHandler),
     ])
     tornado_app.listen(port_number, "0.0.0.0")
