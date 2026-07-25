@@ -1,13 +1,16 @@
 import asyncio
 import logging
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
 import config
 import database
 import othello_game
 
+logger = logging.getLogger(__name__)
+
 lobby_tasks = {}
 BOT_USERNAME = None
+
 
 async def _lobby_timeout(chat_id, bot):
     try:
@@ -23,27 +26,32 @@ async def _lobby_timeout(chat_id, bot):
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        logging.error(f"Lobby timeout error: {e}")
+        logger.error(f"Lobby timeout error: {e}")
+
 
 def schedule_lobby_timeout(chat_id, bot):
     cancel_lobby_timeout(chat_id)
     lobby_tasks[chat_id] = asyncio.create_task(_lobby_timeout(chat_id, bot))
+
 
 def cancel_lobby_timeout(chat_id):
     task = lobby_tasks.pop(chat_id, None)
     if task:
         task.cancel()
 
+
 def game_button(text, url, use_webapp, chat_type):
     if use_webapp and chat_type not in ("group", "supergroup"):
         return {"text": text, "web_app": {"url": url}}
     return {"text": text, "url": url}
+
 
 def lobby_markup():
     return {"inline_keyboard": [
         [{"text": "✅ Join", "callback_data": "oth_join"},
          {"text": "❌ Leave", "callback_data": "oth_leave"}]
     ]}
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text or ""
@@ -65,6 +73,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🎮 **Game Hub**\n\nUse /game to see available games."
         )
 
+
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         base = config.WEBHOOK_URL
@@ -83,8 +92,9 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
         )
     except Exception as e:
-        logging.error(f"Game command error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Game command error: {e}")
+        await update.message.reply_text("❌ Could not open game hub. Try again later.")
+
 
 async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -105,13 +115,14 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         othello_game.get_or_create_lobby(chat_id)
         schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
-        msg = await context.bot.send_message(
+        await context.bot.send_message(
             chat_id=chat_id, text=text,
             api_kwargs={"reply_markup": lobby_markup()}
         )
     except Exception as e:
-        logging.error(f"Tello command error: {e}")
-        await update.message.reply_text(f"❌ Error: {e}")
+        logger.error(f"Tello command error: {e}")
+        await update.message.reply_text("❌ Could not create lobby. Try again later.")
+
 
 async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -144,7 +155,6 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
 
         ok, err = othello_game.lobby_add(chat_id, uid, name)
-        # Reset timeout on each join
         schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
         try:
@@ -164,7 +174,6 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gid = await othello_game.check_match(chat_id)
         if gid:
-            # Lobby stays active for more games
             await database.save_othello_lobby(chat_id, othello_game.lobbies.get(chat_id, {}).get('players', []))
             g = othello_game.games[gid]
             deep_link = f"https://t.me/{BOT_USERNAME}?start=othello_{gid}"
@@ -199,6 +208,7 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 api_kwargs={"reply_markup": lobby_markup()}
             )
 
+
 async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         rows = await database.get_leaderboard()
@@ -212,8 +222,9 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             text += f"{medal} {name} — {r['score']}\n"
         await update.message.reply_text(text)
     except Exception as e:
-        logging.error(f"Leaderboard error: {e}")
-        await update.message.reply_text("❌ Error loading leaderboard.")
+        logger.error(f"Leaderboard error: {e}")
+        await update.message.reply_text("❌ Could not load leaderboard.")
+
 
 game_handler = CommandHandler("game", game_command)
 tello_handler = CommandHandler("tello", tello_command)

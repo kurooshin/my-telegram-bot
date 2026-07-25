@@ -1,4 +1,4 @@
 python-telegram-bot[webhooks]==21.1.1
-asyncpg
-tornado
-pytest
+asyncpg>=0.29
+tornado>=6.4
+pytest>=8.0

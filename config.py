@@ -1,12 +1,15 @@
-# config.py
 import os
 
-# اطلاعات ربات و وب‌هووک
-TOKEN = os.environ.get("BOT_TOKEN", "8533985739:AAGd3qNg1F51Vnv-W1K0hk8Vuig6DU_7tck")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://my-telegram-bot-1-gg31.onrender.com")
+TOKEN = os.environ.get("BOT_TOKEN")
+if not TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is required")
 
-# اطلاعات دیتابیس پستگرس سوپابیس
-DB_URI = os.environ.get("DATABASE_URL", "postgresql://postgres.fzgumhzvhskxkpgiwxvs:Shadow_senpai1388@aws-0-eu-central-1.pooler.supabase.com:6543/postgres")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
+if not WEBHOOK_URL:
+    raise ValueError("WEBHOOK_URL environment variable is required")
 
-# شناسه ادمین اصلی
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "6630815807"))
+DB_URI = os.environ.get("DATABASE_URL")
+if not DB_URI:
+    raise ValueError("DATABASE_URL environment variable is required")
+
+ADMIN_ID = int(os.environ["ADMIN_ID"])

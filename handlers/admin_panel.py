@@ -1,4 +1,5 @@
-# handlers/admin_panel.py
+"""Admin panel — keyword management, co-admin management, group toggling."""
+
 import warnings
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
@@ -8,42 +9,40 @@ warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*
 
 ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME = range(5)
 
+
 async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     role = await database.get_role(user_id)
-    
     if not role:
         return ConversationHandler.END
 
     keyboard = [
-        [InlineKeyboardButton("➕ افزودن کلمه کلیدی", callback_data="btn_add_kw")],
-        [InlineKeyboardButton("📋 لیست کلمات آموزش‌دیده", callback_data="btn_list_kw")]
+        [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
+        [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")]
     ]
-    
     if role == 'admin':
-        keyboard.append([InlineKeyboardButton("👤 افزودن کو-ادمین جدید", callback_data="btn_add_co")])
-        keyboard.append([InlineKeyboardButton("👑 لیست ادمین‌ها", callback_data="btn_list_ad")])
-        
+        keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
+        keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
+
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🛠 به پنل مدیریت ربات خوش آمدید.\nیک گزینه را انتخاب کنید:", reply_markup=reply_markup)
+    await update.message.reply_text("🛠 Admin Panel\nChoose an option:", reply_markup=reply_markup)
     return ConversationHandler.END
+
 
 async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     role = await database.get_role(user_id)
-    
     await query.answer()
     if not role:
         return
 
     if query.data == "btn_add_kw":
-        await query.edit_message_text("📝 کلمه کلیدی جدید را ارسال کنید:")
+        await query.edit_message_text("📝 Send the new keyword:")
         return ADD_KEYWORD
     elif query.data == "btn_add_co" and role == 'admin':
-        await query.edit_message_text("🆔 آیدی عددی کو-ادمین جدید را بفرستید:")
+        await query.edit_message_text("🆔 Send the co-admin's numeric user ID:")
         return ADD_CO_ID
-
     elif query.data == "btn_list_kw":
         await display_beautiful_keywords(query)
     elif query.data == "btn_list_ad" and role == 'admin':
@@ -53,68 +52,71 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             await conn.execute('DELETE FROM bot_keywords WHERE id = $1', kw_id)
-            await display_beautiful_keywords(query, "✅ کلمه با موفقیت حذف شد.\n\n")
-
+            await display_beautiful_keywords(query, "✅ Keyword deleted.\n\n")
     elif query.data.startswith("remad_") and role == 'admin':
         co_id = int(query.data.split("_")[1])
         pool = await database.get_pool()
         async with pool.acquire() as conn:
             await conn.execute("DELETE FROM bot_admins WHERE user_id = $1 AND role = 'co_admin'", co_id)
-            await display_beautiful_admins(query, "✅ کو-ادمین با موفقیت حذف شد.\n\n")
+            await display_beautiful_admins(query, "✅ Co-admin removed.\n\n")
 
     return ConversationHandler.END
+
 
 async def display_beautiful_keywords(query, prefix=""):
     pool = await database.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('SELECT id, keyword, response, match_type FROM bot_keywords ORDER BY id DESC')
         if not rows:
-            await query.edit_message_text(f"{prefix}ℹ️ هنوز هیچ کلمه‌ای آموزش داده نشده است.")
+            await query.edit_message_text(f"{prefix}ℹ️ No keywords saved yet.")
             return
-        text = f"{prefix}📋 **لیست کلمات فعال ربات:**\n\n"
+        text = f"{prefix}📋 **Keywords:**\n\n"
         keyboard = []
         for i, r in enumerate(rows, 1):
             mt = "🔴" if r['match_type'] == 'exact' else "🟢"
             text += f"{i}. `{r['keyword']}` = {r['response']} {mt}\n"
-            keyboard.append([InlineKeyboardButton(f"🗑 حذف کلمه {i} ({r['keyword']})", callback_data=f"del_{r['id']}")])
+            keyboard.append([InlineKeyboardButton(f"🗑 Delete {i} ({r['keyword']})", callback_data=f"del_{r['id']}")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 async def display_beautiful_admins(query, prefix=""):
     pool = await database.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('SELECT user_id, role, name FROM bot_admins ORDER BY role DESC, name ASC')
         if not rows:
-            await query.edit_message_text(f"{prefix}ℹ️ هیچ ادمینی یافت نشد.")
+            await query.edit_message_text(f"{prefix}ℹ️ No admins found.")
             return
-        text = f"{prefix}👑 لیست ادمین‌ها:\n\n"
+        text = f"{prefix}👑 **Admins:**\n\n"
         keyboard = []
         for i, r in enumerate(rows, 1):
             role_emoji = "👑" if r['role'] == 'admin' else "👤"
-            text += f"{i}. {role_emoji} {r['user_id']} - {r['name']} ({r['role']})\n"
+            text += f"{i}. {role_emoji} `{r['user_id']}` — {r['name']} ({r['role']})\n"
             if r['role'] == 'co_admin':
-                keyboard.append([InlineKeyboardButton(f"🗑 حذف {r['name']}", callback_data=f"remad_{r['user_id']}")])
+                keyboard.append([InlineKeyboardButton(f"🗑 Remove {r['name']}", callback_data=f"remad_{r['user_id']}")])
         markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await query.edit_message_text(text, reply_markup=markup)
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
 
-# Keyword and admin conversation handlers
+
 async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_kw'] = database.normalize_persian(update.message.text.strip())
-    await update.message.reply_text("💬 پاسخ کلمه را ارسال کنید:")
+    await update.message.reply_text("💬 Send the response for this keyword:")
     return ADD_RESPONSE
+
 
 async def process_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_res'] = update.message.text.strip()
     keyboard = [
-        [InlineKeyboardButton("🟢 انعطاف‌پذیر (پیش‌فرض)", callback_data="mtype_flexible")],
-        [InlineKeyboardButton("🔴 دقیق (فقط همان کلمه)", callback_data="mtype_exact")]
+        [InlineKeyboardButton("🟢 Flexible (default)", callback_data="mtype_flexible")],
+        [InlineKeyboardButton("🔴 Exact match", callback_data="mtype_exact")]
     ]
     await update.message.reply_text(
-        "نوع مطابقت کلمه را انتخاب کنید:\n\n"
-        "🟢 انعطاف‌پذیر — مثل «عباس» با «عباااس» هم جواب می‌دهد\n"
-        "🔴 دقیق — مثل «سلام» فقط با «سلام» جواب می‌دهد نه «سلاممم»",
+        "Choose match type:\n\n"
+        "🟢 Flexible — matches variations (e.g. 'hello' matches 'helloo')\n"
+        "🔴 Exact — only the exact word matches",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ADD_MATCH_TYPE
+
 
 async def process_match_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -122,40 +124,57 @@ async def process_match_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
     match_type = query.data.replace("mtype_", "")
     keyword = context.user_data.get('temp_kw')
     response = context.user_data.get('temp_res')
+    if not keyword or not response:
+        await query.edit_message_text("❌ Session expired. Use /panel to start over.")
+        context.user_data.clear()
+        return ConversationHandler.END
     pool = await database.get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
-            'INSERT INTO bot_keywords (keyword, response, match_type) VALUES ($1, $2, $3) ON CONFLICT (keyword) DO UPDATE SET response = $2, match_type = $3',
+            'INSERT INTO bot_keywords (keyword, response, match_type) VALUES ($1, $2, $3) '
+            'ON CONFLICT (keyword) DO UPDATE SET response = $2, match_type = $3',
             keyword, response, match_type
         )
-        type_label = "دقیق" if match_type == "exact" else "انعطاف‌پذیر"
-        await query.edit_message_text(f"✅ کلمه کلیدی با نوع «{type_label}» ذخیره شد!")
+        type_label = "exact" if match_type == "exact" else "flexible"
+        await query.edit_message_text(f"✅ Keyword saved! (type: {type_label})")
     context.user_data.clear()
     return ConversationHandler.END
+
 
 async def process_co_admin_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         context.user_data['temp_co_id'] = int(update.message.text.strip())
-        await update.message.reply_text("✍️ نام یا لقب کو-ادمین:")
+        await update.message.reply_text("✍️ Send the co-admin's name:")
         return ADD_CO_NAME
     except ValueError:
-        await update.message.reply_text("❌ خطا در فرمت آیدی عددی.")
+        await update.message.reply_text("❌ Invalid user ID. Must be a number.")
         return ADD_CO_ID
+
 
 async def process_co_admin_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     co_id = context.user_data.get('temp_co_id')
     co_name = update.message.text.strip()
+    if not co_id:
+        await update.message.reply_text("❌ Session expired. Use /panel to start over.")
+        context.user_data.clear()
+        return ConversationHandler.END
     pool = await database.get_pool()
     async with pool.acquire() as conn:
-        await conn.execute('INSERT INTO bot_admins (user_id, role, name) VALUES ($1, \'co_admin\', $2) ON CONFLICT (user_id) DO UPDATE SET name = $2', co_id, co_name)
-        await update.message.reply_text(f"✅ کاربر {co_name} ثبت شد.")
+        await conn.execute(
+            'INSERT INTO bot_admins (user_id, role, name) VALUES ($1, \'co_admin\', $2) '
+            'ON CONFLICT (user_id) DO UPDATE SET name = $2',
+            co_id, co_name
+        )
+        await update.message.reply_text(f"✅ Co-admin {co_name} registered.")
     context.user_data.clear()
     return ConversationHandler.END
 
+
 async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("❌ عملیات لغو شد.")
+    await update.message.reply_text("❌ Cancelled.")
     return ConversationHandler.END
+
 
 async def toggle_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -175,7 +194,7 @@ async def toggle_group_command(update: Update, context: ContextTypes.DEFAULT_TYP
     elif chat.type in ("group", "supergroup"):
         target_id = chat.id
     else:
-        await update.message.reply_text("❌ Usage: /toggle_group <group_id> (or run in a group to toggle this chat)")
+        await update.message.reply_text("❌ Usage: /toggle_group <group_id> (or run in a group)")
         return
 
     pool = await database.get_pool()
@@ -185,9 +204,13 @@ async def toggle_group_command(update: Update, context: ContextTypes.DEFAULT_TYP
             await update.message.reply_text("❌ Group not found in database.")
             return
         new = not current
-        await conn.execute('UPDATE bot_groups SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE group_id = $2', new, target_id)
+        await conn.execute(
+            'UPDATE bot_groups SET is_active = $1, updated_at = CURRENT_TIMESTAMP WHERE group_id = $2',
+            new, target_id
+        )
         status = "✅ enabled" if new else "❌ disabled"
         await update.message.reply_text(f"Group `{target_id}` {status}.")
+
 
 toggle_group_handler = CommandHandler("toggle_group", toggle_group_command)
 

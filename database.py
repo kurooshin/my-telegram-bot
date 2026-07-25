@@ -1,22 +1,50 @@
-# database.py
+"""
+Database abstraction layer — asyncpg connection pool and all table operations.
+
+CONSTRAINT: All state (games, lobbies, chat) is kept in-process. This works
+for a single server instance only. See othello_game.py for details.
+"""
 import json
+import logging
 import asyncpg
 import config
 
+logger = logging.getLogger(__name__)
+
+
 def normalize_persian(text: str) -> str:
-    text = text.replace('\u064A', '\u06CC')  # ي -> ی
-    text = text.replace('\u0643', '\u06A9')  # ك -> ک
-    text = text.replace('\u200C', '')        # ZWNJ
+    """Normalize Persian/Arabic characters for consistent matching."""
+    text = text.replace('\u064A', '\u06CC')
+    text = text.replace('\u0643', '\u06A9')
+    text = text.replace('\u200C', '')
     return text
 
-_pool = None
+
+_pool: asyncpg.Pool | None = None
+
 
 async def get_pool() -> asyncpg.Pool:
     """Return the shared connection pool, creating it on first call."""
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(config.DB_URI, min_size=2, max_size=10, statement_cache_size=0)
+        logger.info("Creating database connection pool...")
+        _pool = await asyncpg.create_pool(
+            config.DB_URI,
+            min_size=2,
+            max_size=10,
+            statement_cache_size=0,
+        )
     return _pool
+
+
+async def close_pool() -> None:
+    """Close the database connection pool (call on shutdown)."""
+    global _pool
+    if _pool:
+        await _pool.close()
+        _pool = None
+        logger.info("Database pool closed.")
+
 
 async def init_db() -> None:
     """Create all required tables if they don't exist, and seed the admin account."""
@@ -48,8 +76,8 @@ async def init_db() -> None:
             );
         ''')
         await conn.execute('''
-            INSERT INTO bot_admins (user_id, role, name) 
-            VALUES ($1, 'admin', 'Owner') 
+            INSERT INTO bot_admins (user_id, role, name)
+            VALUES ($1, 'admin', 'Owner')
             ON CONFLICT (user_id) DO UPDATE SET role = 'admin'
         ''', config.ADMIN_ID)
 
@@ -87,6 +115,7 @@ async def init_db() -> None:
             )
         ''')
 
+
 async def save_othello_game(
     game_id: str, board: list, turn: str,
     black_id: str, black_name: str,
@@ -104,18 +133,20 @@ async def save_othello_game(
                 board = $2::jsonb, turn = $3, game_over = $8, winner = $9, last_move = $10::jsonb
         """, game_id, json.dumps(board), turn, black_id, black_name, white_id, white_name, game_over, winner, json.dumps(last_move) if last_move else None)
 
+
 async def load_othello_games() -> list[asyncpg.Record]:
     """Return all unfinished Othello games from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM othello_games WHERE game_over = FALSE")
-        return rows
+        return await conn.fetch("SELECT * FROM othello_games WHERE game_over = FALSE")
+
 
 async def delete_othello_game(game_id: str) -> None:
     """Remove an Othello game record from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM othello_games WHERE game_id = $1", game_id)
+
 
 async def save_othello_lobby(chat_id: int, players: list[dict]) -> None:
     """Insert or update an Othello lobby record."""
@@ -127,24 +158,28 @@ async def save_othello_lobby(chat_id: int, players: list[dict]) -> None:
             ON CONFLICT (chat_id) DO UPDATE SET players = $2::jsonb
         """, chat_id, json.dumps(players))
 
+
 async def delete_othello_lobby(chat_id: int) -> None:
     """Remove an Othello lobby record from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM othello_lobbies WHERE chat_id = $1", chat_id)
 
+
 async def load_othello_lobbies() -> list[asyncpg.Record]:
     """Return all Othello lobby records from the database."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM othello_lobbies")
-        return rows
+        return await conn.fetch("SELECT * FROM othello_lobbies")
 
-async def get_role(user_id: int) -> str:
+
+async def get_role(user_id: int) -> str | None:
+    """Return the role string for a user, or None if not an admin."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT role FROM bot_admins WHERE user_id = $1', user_id)
         return row['role'] if row else None
+
 
 async def submit_score(user_id: str, user_name: str, score: int) -> bool:
     """Submit a Snake score. Returns True if it's a new personal best."""
@@ -156,6 +191,7 @@ async def submit_score(user_id: str, user_name: str, score: int) -> bool:
             user_id
         )
         return old_best is None or score > old_best
+
 
 async def get_leaderboard(limit: int = 10) -> list[dict]:
     """Return the top Snake scores, each player's best score only."""

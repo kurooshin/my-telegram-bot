@@ -9,7 +9,11 @@ existing othello_games table and load on every request, or use Redis pub/sub).
 """
 import secrets
 import time
+import asyncio
+import logging
 import database
+
+logger = logging.getLogger(__name__)
 
 SIZE = 8
 
@@ -17,6 +21,9 @@ lobbies: dict[int, dict] = {}
 games: dict[str, dict] = {}
 chat_messages: dict[str, list[dict]] = {}
 MAX_CHAT = 100
+
+GAME_IDLE_TIMEOUT = 900  # 15 minutes in seconds
+_game_timeout_tasks: dict[str, asyncio.Task] = {}
 
 
 def new_board() -> list[list[str | None]]:
@@ -139,9 +146,11 @@ async def create_game(black_id: str, black_name: str, white_id: str, white_name:
         'game_over': False,
         'winner': None,
         'last_move': None,
+        'last_move_time': time.time(),
     }
     games[gid] = g
     await database.save_othello_game(gid, board, 'b', black_id, black_name, white_id, white_name)
+    _schedule_game_timeout(gid)
     return gid
 
 
@@ -193,6 +202,7 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
         return None
     apply_move(board, r, c, color)
     g['last_move'] = (r, c)
+    g['last_move_time'] = time.time()
     g['turn'] = 'w' if color == 'b' else 'b'
 
     b, w = counts(board)
@@ -201,6 +211,7 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
         if not valid_moves(board, opp):
             g['game_over'] = True
             g['winner'] = 'draw' if b == w else ('black' if b > w else 'white')
+            _cancel_game_timeout(gid)
 
     await database.save_othello_game(
         gid, board, g['turn'],
@@ -208,7 +219,49 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
         g['white']['id'], g['white']['name'],
         g['game_over'], g['winner'], g['last_move']
     )
+    if not g['game_over']:
+        _schedule_game_timeout(gid)
     return get_state(gid)
+
+
+def _schedule_game_timeout(gid: str) -> None:
+    """Schedule or reschedule the idle timeout for a game."""
+    _cancel_game_timeout(gid)
+    task = asyncio.create_task(_game_idle_worker(gid))
+    _game_timeout_tasks[gid] = task
+
+
+def _cancel_game_timeout(gid: str) -> None:
+    task = _game_timeout_tasks.pop(gid, None)
+    if task:
+        task.cancel()
+
+
+async def _game_idle_worker(gid: str) -> None:
+    """Auto-forfeit the game if no move is made within GAME_IDLE_TIMEOUT seconds."""
+    try:
+        await asyncio.sleep(GAME_IDLE_TIMEOUT)
+        g = games.get(gid)
+        if not g or g['game_over']:
+            return
+        g['game_over'] = True
+        # The player whose turn it is forfeits
+        if g['turn'] == 'b':
+            g['winner'] = 'white'
+        else:
+            g['winner'] = 'black'
+        g['last_move'] = None
+        await database.save_othello_game(
+            gid, g['board'], g['turn'],
+            g['black']['id'], g['black']['name'],
+            g['white']['id'], g['white']['name'],
+            g['game_over'], g['winner'], g['last_move']
+        )
+        logger.info("Game %s auto-forfeited after idle timeout (winner: %s)", gid, g['winner'])
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.error("Game idle timeout error for %s: %s", gid, e)
 
 
 def add_chat_message(gid: str, user_id: str, name: str, text: str) -> None:
@@ -243,7 +296,10 @@ async def restore_games() -> None:
             'game_over': row['game_over'],
             'winner': row['winner'],
             'last_move': row['last_move'],
+            'last_move_time': time.time(),
         }
+        if not row['game_over']:
+            _schedule_game_timeout(gid)
 
 
 async def restore_lobbies() -> None:
