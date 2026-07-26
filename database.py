@@ -194,11 +194,14 @@ async def submit_score(user_id: str, user_name: str, score: int) -> bool:
 
 
 async def get_leaderboard(limit: int = 10) -> list[dict]:
-    """Return the top Snake scores, each player's best score only."""
+    """Return the top Snake scores, each player's best score only, ordered by score descending."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            'SELECT DISTINCT ON (s.user_id) s.user_id, s.user_name, s.score FROM snake_scores s ORDER BY s.user_id, s.score DESC LIMIT $1',
-            limit
-        )
+        rows = await conn.fetch('''
+            SELECT s.user_id, MAX(s.user_name) AS user_name, MAX(s.score) AS score
+            FROM snake_scores s
+            GROUP BY s.user_id
+            ORDER BY score DESC
+            LIMIT $1
+        ''', limit)
         return [dict(r) for r in rows]

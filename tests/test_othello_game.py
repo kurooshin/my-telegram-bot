@@ -145,3 +145,42 @@ def test_normalize_persian():
     assert "ي" not in normalized
     assert "ك" not in normalized
 
+
+def test_slot_lobby():
+    chat_id = 999111
+    othello_game.lobbies.pop(chat_id, None)
+
+    # Join Black
+    ok, err = othello_game.lobby_join_slot(chat_id, "u1", "User 1", "black")
+    assert ok is True
+    lobby = othello_game.lobbies[chat_id]
+    assert lobby["black"]["id"] == "u1"
+
+    # Join White
+    ok, err = othello_game.lobby_join_slot(chat_id, "u2", "User 2", "white")
+    assert ok is True
+    assert lobby["white"]["id"] == "u2"
+
+
+@pytest.mark.asyncio
+async def test_quick_matchmaking():
+    othello_game.quick_queue.clear()
+
+    with patch("database.save_othello_game", new_callable=AsyncMock):
+        # User 1 joins queue -> no match yet
+        gid1, opp1 = await othello_game.join_quick_match("q1", "Queuer 1", 100)
+        assert gid1 is None
+
+        # User 2 joins queue -> instantly matched!
+        gid2, opp2 = await othello_game.join_quick_match("q2", "Queuer 2", 200)
+        assert gid2 is not None
+        assert opp2["id"] == "q1"
+
+
+def test_ai_solver():
+    import othello_ai
+    board = othello_game.new_board()
+    best_m = othello_ai.get_best_move(board, 'b')
+    assert best_m in [(2, 3), (3, 2), (4, 5), (5, 4)]
+
+

@@ -78,36 +78,94 @@ def counts(board: list[list[str | None]]) -> tuple[int, int]:
     return b, w
 
 
+# Global Quick Matchmaking Queue
+quick_queue: list[dict] = []
+
+
 def lobby_text(chat_id: int) -> str:
     """Return the formatted lobby status message for a chat."""
     lobby = lobbies.get(chat_id)
-    if not lobby or not lobby['players']:
-        return "⚫ **Othello Lobby**\n\nNo players yet."
-    body = "\n".join(f"{i+1}. {p['name']}" for i, p in enumerate(lobby['players']))
-    return f"⚫ **Othello Lobby**\n\nPlayers ({len(lobby['players'])}):\n{body}"
+    if not lobby:
+        return (
+            "⚫⚪ **Othello Match Arena** ⚪⚫\n\n"
+            "• **Black (●)**: _Empty_\n"
+            "• **White (○)**: _Empty_\n\n"
+            "👇 Choose a slot or quick action below:"
+        )
+
+    b_name = lobby.get('black', {}).get('name') if lobby.get('black') else "_Empty_"
+    w_name = lobby.get('white', {}).get('name') if lobby.get('white') else "_Empty_"
+
+    status = "⏳ Waiting for opponent..."
+    if lobby.get('black') and lobby.get('white'):
+        status = "⚡ **Match Ready! Starting game...**"
+
+    return (
+        f"⚫⚪ **Othello Match Arena** ⚪⚫\n\n"
+        f"• **Black (●)**: {b_name}\n"
+        f"• **White (○)**: {w_name}\n\n"
+        f"Status: {status}"
+    )
 
 
-def lobby_buttons() -> list[list[dict]]:
-    """Return the Join/Leave inline keyboard."""
+def lobby_buttons(chat_id: int | None = None) -> list[list[dict]]:
+    """Return the interactive inline keyboard for the lobby."""
+    lobby = lobbies.get(chat_id) if chat_id else None
+    has_b = bool(lobby and lobby.get('black'))
+    has_w = bool(lobby and lobby.get('white'))
+
+    b_btn_text = "⚫ Join Black (●)" if not has_b else "⚫ Black Joined ✅"
+    w_btn_text = "⚪ Join White (○)" if not has_w else "⚪ White Joined ✅"
+
     return [
-        [{"text": "✅ Join", "callback_data": "oth_join"},
-         {"text": "❌ Leave", "callback_data": "oth_leave"}]
+        [{"text": b_btn_text, "callback_data": "oth_slot_b"},
+         {"text": w_btn_text, "callback_data": "oth_slot_w"}],
+        [{"text": "⚡ Quick Match", "callback_data": "oth_quick"},
+         {"text": "🤖 vs Bot AI", "callback_data": "oth_vs_ai"}],
+        [{"text": "❌ Leave Slot", "callback_data": "oth_leave"},
+         {"text": "🚪 Close Lobby", "callback_data": "oth_close"}]
     ]
 
 
 def get_or_create_lobby(chat_id: int) -> dict:
     """Return the lobby for a chat, creating an empty one if it does not exist."""
     if chat_id not in lobbies:
-        lobbies[chat_id] = {'players': []}
+        lobbies[chat_id] = {'black': None, 'white': None, 'created_at': time.time(), 'players': []}
     return lobbies[chat_id]
 
 
 def lobby_add(chat_id: int, user_id: str, user_name: str) -> tuple[bool, str | None]:
-    """Add a player to the lobby. Returns (ok, error_message)."""
+    """Legacy helper: add player to first available slot in lobby."""
     lobby = get_or_create_lobby(chat_id)
-    if any(p['id'] == user_id for p in lobby['players']):
-        return False, "You're already in the lobby."
-    lobby['players'].append({'id': user_id, 'name': user_name})
+    if (lobby.get('black') and lobby['black']['id'] == user_id) or (lobby.get('white') and lobby['white']['id'] == user_id):
+        return False, "You're already in this lobby!"
+
+    if not lobby.get('black'):
+        lobby['black'] = {'id': user_id, 'name': user_name}
+    elif not lobby.get('white'):
+        lobby['white'] = {'id': user_id, 'name': user_name}
+    else:
+        return False, "Lobby is full!"
+
+    # Sync legacy 'players' list
+    lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
+    return True, None
+
+
+def lobby_join_slot(chat_id: int, user_id: str, user_name: str, slot: str) -> tuple[bool, str | None]:
+    """Join specific slot ('black' or 'white'). Returns (ok, error_message)."""
+    lobby = get_or_create_lobby(chat_id)
+    opp_slot = 'white' if slot == 'black' else 'black'
+
+    # If player is in opposite slot, remove them first
+    if lobby.get(opp_slot) and lobby[opp_slot]['id'] == user_id:
+        lobby[opp_slot] = None
+
+    if lobby.get(slot) and lobby[slot]['id'] != user_id:
+        return False, f"Slot {slot.title()} is already taken!"
+
+    lobby[slot] = {'id': user_id, 'name': user_name}
+    lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
     return True, None
 
 
@@ -115,23 +173,90 @@ def lobby_remove(chat_id: int, user_id: str) -> tuple[bool, str | None]:
     """Remove a player from the lobby. Returns (ok, error_message)."""
     lobby = lobbies.get(chat_id)
     if not lobby:
-        return False, "No lobby."
-    before = len(lobby['players'])
-    lobby['players'] = [p for p in lobby['players'] if p['id'] != user_id]
-    if len(lobby['players']) == before:
-        return False, "You're not in the lobby."
+        return False, "No active lobby."
+
+    removed = False
+    if lobby.get('black') and lobby['black']['id'] == user_id:
+        lobby['black'] = None
+        removed = True
+    if lobby.get('white') and lobby['white']['id'] == user_id:
+        lobby['white'] = None
+        removed = True
+
+    lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
+    if not removed:
+        return False, "You're not in this lobby."
     return True, None
 
 
 async def check_match(chat_id: int) -> str | None:
-    """If 2+ players are in the lobby, pair the first two and return the game ID. Removes them from the lobby."""
+    """If both Black and White slots are filled, create the game and clear lobby."""
     lobby = lobbies.get(chat_id)
-    if not lobby or len(lobby['players']) < 2:
+    if not lobby or not lobby.get('black') or not lobby.get('white'):
         return None
-    p1, p2 = lobby['players'][0], lobby['players'][1]
+
+    p1, p2 = lobby['black'], lobby['white']
     gid = await create_game(p1['id'], p1['name'], p2['id'], p2['name'])
-    lobby['players'] = [p for p in lobby['players'] if p['id'] != p1['id'] and p['id'] != p2['id']]
+    del lobbies[chat_id]
+    await database.delete_othello_lobby(chat_id)
     return gid
+
+
+async def join_quick_match(user_id: str, user_name: str, chat_id: int) -> tuple[str | None, dict | None]:
+    """
+    Join global quick matchmaking queue.
+    Returns (game_id, matched_opponent_dict) if matched instantly, else (None, None).
+    """
+    global quick_queue
+    # Filter out expired or duplicate entries
+    quick_queue = [q for q in quick_queue if q['id'] != user_id and (time.time() - q['time']) < 300]
+
+    if quick_queue:
+        opp = quick_queue.pop(0)
+        # Create game between opp and current user
+        gid = await create_game(opp['id'], opp['name'], user_id, user_name)
+        return gid, opp
+    else:
+        quick_queue.append({
+            'id': user_id,
+            'name': user_name,
+            'chat_id': chat_id,
+            'time': time.time()
+        })
+        return None, None
+
+
+async def create_ai_game(user_id: str, user_name: str, color: str = 'b') -> str:
+    """Create a new game against Othello Bot AI."""
+    ai_player = {'id': 'bot_ai', 'name': '🤖 Othello Bot'}
+    if color == 'b':
+        return await create_game(user_id, user_name, ai_player['id'], ai_player['name'])
+    else:
+        return await create_game(ai_player['id'], ai_player['name'], user_id, user_name)
+
+
+async def check_and_trigger_ai_move(gid: str) -> dict | None:
+    """If current turn belongs to 'bot_ai', compute and execute the best move."""
+    g = games.get(gid)
+    if not g or g['game_over']:
+        return None
+
+    ai_color = None
+    if g['black']['id'] == 'bot_ai':
+        ai_color = 'b'
+    elif g['white']['id'] == 'bot_ai':
+        ai_color = 'w'
+
+    if not ai_color or g['turn'] != ai_color:
+        return None
+
+    import othello_ai
+    move = othello_ai.get_best_move(g['board'], ai_color)
+    if move:
+        r, c = move
+        return await make_move(gid, 'bot_ai', r, c)
+    return None
+
 
 
 async def create_game(black_id: str, black_name: str, white_id: str, white_name: str) -> str:
@@ -232,7 +357,15 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
     )
     if not g['game_over']:
         _schedule_game_timeout(gid)
+        if user_id != 'bot_ai' and (g['black']['id'] == 'bot_ai' or g['white']['id'] == 'bot_ai'):
+            asyncio.create_task(async_ai_step(gid))
     return get_state(gid)
+
+
+async def async_ai_step(gid: str) -> None:
+    """Execute AI move asynchronously with realistic thinking delay."""
+    await asyncio.sleep(0.5)
+    await check_and_trigger_ai_move(gid)
 
 
 def _schedule_game_timeout(gid: str) -> None:
