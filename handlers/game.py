@@ -104,7 +104,7 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for gid, g in list(othello_game.games.items()):
             if not g['game_over'] and (g['black']['id'] == uid or g['white']['id'] == uid):
                 url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
-                btn = game_button("⚫ Resume Othello Game", url, True, "private")
+                btn = game_button("⚫ Resume Othello Game", url, True, update.effective_chat.type)
                 await context.bot.send_message(
                     chat_id=chat_id, text="⚫ You have an active Othello game!",
                     api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
@@ -172,20 +172,21 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         gid = await othello_game.check_match(chat_id)
         if gid:
-            await send_match_started_card(context.bot, chat_id, gid)
+            await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
 
     elif data == "oth_vs_ai":
         gid = await othello_game.create_ai_game(uid, name, 'b')
         await query.answer("🤖 Created match against Othello Bot!", show_alert=True)
-        await send_match_started_card(context.bot, chat_id, gid)
+        await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
 
     elif data == "oth_quick":
         gid, opp = await othello_game.join_quick_match(uid, name, chat_id)
         if gid:
             await query.answer("⚡ Match Found!", show_alert=True)
-            await send_match_started_card(context.bot, chat_id, gid)
+            await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
             if opp and opp.get('chat_id') and opp['chat_id'] != chat_id:
-                await send_match_started_card(context.bot, opp['chat_id'], gid)
+                # Opponent is in a different chat — we don't know their chat_type, use 'private' as safe fallback
+                await send_match_started_card(context.bot, opp['chat_id'], gid, 'private')
         else:
             await query.answer("⚡ Searching for an opponent... You'll be notified when matched!", show_alert=True)
 
@@ -211,7 +212,12 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-async def send_match_started_card(bot, chat_id: int, gid: str):
+async def send_match_started_card(bot, chat_id: int, gid: str, chat_type: str = "private"):
+    """Send the match-started card.
+
+    Telegram ONLY allows web_app buttons in private chats.
+    In groups/supergroups we must use a url deep-link instead.
+    """
     g = othello_game.games.get(gid)
     if not g:
         return
@@ -219,21 +225,32 @@ async def send_match_started_card(bot, chat_id: int, gid: str):
     deep_link = f"https://t.me/{uname}?start=othello_{gid}"
     web_url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
 
+    # Choose button type based on chat type:
+    # - private chat → web_app (opens Mini App directly)
+    # - group/supergroup → url deep-link (opens bot PM first, then Mini App)
+    is_private = chat_type == "private"
+    if is_private:
+        play_btn = {"text": "⚫ Open Game (Mini App)", "web_app": {"url": web_url}}
+    else:
+        # In groups web_app is not allowed — send deep link that opens the Mini App in PM
+        play_btn = {"text": "⚫ Open Game", "url": deep_link}
+
+    buttons = [[play_btn]]
+    # In private, also offer a plain URL fallback for browsers without Mini App support
+    if is_private:
+        buttons[0].append({"text": "🔗 Open in Browser", "url": web_url})
+
     await bot.send_message(
         chat_id=chat_id,
         text=(
             f"🎉 **Othello Match Started!**\n\n"
-            f"• **Black (●)**: {g['black']['name']}\n"
-            f"• **White (○)**: {g['white']['name']}\n\n"
-            f"Click below to launch the game:"
+            f"⚫ **Black**: {g['black']['name']}\n"
+            f"⚪ **White**: {g['white']['name']}\n\n"
+            + ("Tap the button to open the game!" if is_private
+               else "Tap **Open Game** — it will open in your private chat with the bot.")
         ),
         parse_mode="Markdown",
-        api_kwargs={
-            "reply_markup": {"inline_keyboard": [[
-                {"text": "⚫ Play Othello (App)", "web_app": {"url": web_url}},
-                {"text": "🔗 Play Direct Link", "url": deep_link}
-            ]]}
-        }
+        api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
     )
 
 
