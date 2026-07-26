@@ -293,32 +293,28 @@ async function init(){
 
   state=data;
 
-  // Try Mini App auto-identify
+  // Try Mini App auto-identify by strict string comparison
   if(tg&&myId){
-    if(data.black?.id===myId){myColor='b';isSpectator=false;myName=data.black.name}
-    else if(data.white?.id===myId){myColor='w';isSpectator=false;myName=data.white.name}
+    if(String(data.black?.id)===String(myId)){
+      myColor='b';isSpectator=false;myName=data.black.name;myId=String(data.black.id);
+    }else if(String(data.white?.id)===String(myId)){
+      myColor='w';isSpectator=false;myName=data.white.name;myId=String(data.white.id);
+    }
     if(!isSpectator){
       pickerOverlay.classList.add('hidden');
       applyState(data);
       startPolling();
-      chatInputWrap.style.display='flex';
+      if(chatInputWrap)chatInputWrap.style.display='flex';
       chatPollTimer=setInterval(pollChat,2000);
       tg?.ready();
       return;
     }
-    // Known user but not a player → spectator
-    pickerOverlay.classList.add('hidden');
-    isSpectator=true;
-    myName='Spectator';
-    applyState(data);
-    startPolling();
-    chatPollTimer=setInterval(pollChat,2000);
-    return;
   }
 
-  // Browser fallback → show picker
+  // Show picker options so player can select their name or watch
   pickBlack.textContent='● '+(data.black?.name||'Black');
   pickWhite.textContent='○ '+(data.white?.name||'White');
+  pickerOverlay.classList.remove('hidden');
   applyState(data);
   startPolling();
   chatPollTimer=setInterval(pollChat,2000);
@@ -329,16 +325,15 @@ function pickPlayer(color){
     showToast('⏳ Loading game state...');
     return;
   }
-  myColor=color;isSpectator=false;
-  myName=color==='b'?state.black.name:state.white.name;
-  if(!myId){
-    let targetId = color==='b'?state.black.id:state.white.id;
-    myId = (targetId !== 'black' && targetId !== 'white') ? targetId : color;
-  }
+  const p = color==='b'?state.black:state.white;
+  myColor=color;
+  isSpectator=false;
+  myName=p.name||'Player';
+  myId=String(p.id);
   pickerOverlay.classList.add('hidden');
   if(chatInputWrap)chatInputWrap.style.display='flex';
   showToast('Playing as '+(color==='b'?'Black':'White'));
-  draw();
+  applyState(state);
 }
 
 pickBlack.addEventListener('click',()=>pickPlayer('b'));
