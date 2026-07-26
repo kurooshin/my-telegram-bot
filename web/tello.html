@@ -106,109 +106,173 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 <div class="toast" id="toast"></div>
 
 <script>
+// ---- DOM refs ----
 const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
 const statusBar=document.getElementById('statusBar');
 const blackScore=document.getElementById('blackScore'),whiteScore=document.getElementById('whiteScore');
-const pickerOverlay=document.getElementById('pickerOverlay'),gameOverOverlay=document.getElementById('gameOverOverlay');
-const pickBlack=document.getElementById('pickBlack'),pickWhite=document.getElementById('pickWhite'),pickSpec=document.getElementById('pickSpec');
-const winnerText=document.getElementById('winnerText'),scoreText=document.getElementById('scoreText');
-const resultText=document.getElementById('resultText'),playerInfo=document.getElementById('playerInfo');
-const homeBtn=document.getElementById('homeBtn'),toast=document.getElementById('toast');
-const chatToggle=document.getElementById('chatToggle'),chatBadge=document.getElementById('chatBadge');
-const chatPanel=document.getElementById('chatPanel'),chatClose=document.getElementById('chatClose');
-const chatMsgs=document.getElementById('chatMsgs'),chatInput=document.getElementById('chatInput');
-const chatSend=document.getElementById('chatSend'),chatInputWrap=document.getElementById('chatInputWrap');
+const pickerOverlay=document.getElementById('pickerOverlay');
+const gameOverOverlay=document.getElementById('gameOverOverlay');
+const pickBlack=document.getElementById('pickBlack');
+const pickWhite=document.getElementById('pickWhite');
+const pickSpec=document.getElementById('pickSpec');
+const winnerText=document.getElementById('winnerText');
+const scoreText=document.getElementById('scoreText');
+const resultText=document.getElementById('resultText');
+const playerInfo=document.getElementById('playerInfo');
+const homeBtn=document.getElementById('homeBtn');
+const toast=document.getElementById('toast');
+const chatToggle=document.getElementById('chatToggle');
+const chatBadge=document.getElementById('chatBadge');
+const chatPanel=document.getElementById('chatPanel');
+const chatClose=document.getElementById('chatClose');
+const chatMsgs=document.getElementById('chatMsgs');
+const chatInput=document.getElementById('chatInput');
+const chatSend=document.getElementById('chatSend');
+const chatInputWrap=document.getElementById('chatInputWrap');
 
-const tg=window.Telegram?.WebApp;tg?.expand();
+// ---- Telegram Mini App ----
+const tg=window.Telegram?.WebApp;
+tg?.expand();
 const params=new URLSearchParams(window.location.search);
 const gameId=params.get('game_id');
-const myId=tg?.initDataUnsafe?.user?.id?.toString()||null;
-let isSpectator=true,myColor=null,state=null,myName='Player';
-let chatOpen=false,lastChatTs=0,chatPollTimer=null;
 
-const SIZE=8;let cellSize,pollTimer;
+// tgUserId: the Telegram numeric user ID (string). Used ONLY for auto-identification.
+// This is a const - we never reassign it.
+const tgUserId=tg?.initDataUnsafe?.user?.id?.toString()||null;
 
+// myPlayerId: the ID we send to the backend for moves.
+// This is set when the player actively claims a slot.
+// MUST be let so it can be assigned after page load.
+let myPlayerId=null;
+
+let isSpectator=true;
+let myColor=null;   // 'b' or 'w' or null
+let myName='Player';
+let state=null;
+let chatOpen=false;
+let lastChatTs=0;
+let chatPollTimer=null;
+let pollTimer=null;
+
+const SIZE=8;
+let cellSize;
+
+// ---- Canvas resize ----
 function resize(){
   const wrap=canvas.parentElement;
   const s=Math.min(wrap.clientWidth,wrap.clientHeight);
-  canvas.width=canvas.height=s;cellSize=s/SIZE;draw();
+  canvas.width=canvas.height=s;
+  cellSize=s/SIZE;
+  draw();
 }
 window.addEventListener('resize',resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
 
+// ---- Drawing ----
 function draw(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   if(!state)return;
   const cs=cellSize,b=state.board;
-  ctx.fillStyle='#0a7a22';ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.strokeStyle='rgba(0,0,0,.4)';ctx.lineWidth=1;
+  ctx.fillStyle='#0a7a22';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle='rgba(0,0,0,.4)';
+  ctx.lineWidth=1;
   for(let i=0;i<=SIZE;i++){
     ctx.beginPath();ctx.moveTo(i*cs,0);ctx.lineTo(i*cs,canvas.height);ctx.stroke();
     ctx.beginPath();ctx.moveTo(0,i*cs);ctx.lineTo(canvas.width,i*cs);ctx.stroke();
   }
-  for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
-    if(!b[r][c])continue;
-    const x=c*cs+cs/2,y=r*cs+cs/2,rad=cs*.42,isBlack=b[r][c]==='b';
-    const isLast=state.last_move&&state.last_move[0]===r&&state.last_move[1]===c;
-    ctx.shadowColor='rgba(0,0,0,.3)';ctx.shadowBlur=4;
-    const grad=ctx.createRadialGradient(x-rad*.3,y-rad*.3,0,x,y,rad);
-    if(isBlack){grad.addColorStop(0,'#555');grad.addColorStop(1,'#111')}
-    else{grad.addColorStop(0,'#fff');grad.addColorStop(.5,'#eee');grad.addColorStop(1,'#ccc')}
-    ctx.fillStyle=grad;ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill();
-    ctx.shadowBlur=0;
-    if(isLast){ctx.strokeStyle=isBlack?'#ff6b81':'#e94560';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(x,y,rad+3,0,Math.PI*2);ctx.stroke()}
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      if(!b[r][c])continue;
+      const x=c*cs+cs/2,y=r*cs+cs/2,rad=cs*.42;
+      const isBlack=b[r][c]==='b';
+      const isLast=state.last_move&&state.last_move[0]===r&&state.last_move[1]===c;
+      ctx.shadowColor='rgba(0,0,0,.3)';ctx.shadowBlur=4;
+      const grad=ctx.createRadialGradient(x-rad*.3,y-rad*.3,0,x,y,rad);
+      if(isBlack){grad.addColorStop(0,'#555');grad.addColorStop(1,'#111')}
+      else{grad.addColorStop(0,'#fff');grad.addColorStop(.5,'#eee');grad.addColorStop(1,'#ccc')}
+      ctx.fillStyle=grad;
+      ctx.beginPath();ctx.arc(x,y,rad,0,Math.PI*2);ctx.fill();
+      ctx.shadowBlur=0;
+      if(isLast){
+        ctx.strokeStyle=isBlack?'#ff6b81':'#e94560';
+        ctx.lineWidth=2.5;
+        ctx.beginPath();ctx.arc(x,y,rad+3,0,Math.PI*2);ctx.stroke();
+      }
+    }
   }
+  // Show valid move hints only for active player
   if(!state.game_over&&state.valid_moves&&!isSpectator&&myColor===state.turn){
     state.valid_moves.forEach(([r,c])=>{
       const x=c*cs+cs/2,y=r*cs+cs/2;
-      ctx.fillStyle='rgba(255,255,255,.25)';ctx.beginPath();ctx.arc(x,y,cs*.12,0,Math.PI*2);ctx.fill()
+      ctx.fillStyle='rgba(255,255,255,.25)';
+      ctx.beginPath();ctx.arc(x,y,cs*.12,0,Math.PI*2);ctx.fill();
     });
   }
 }
 
+// ---- Click / touch to make a move ----
 function handleClick(cx,cy){
   if(isSpectator||!state||state.game_over||myColor!==state.turn)return;
-  const c=Math.floor(cx/cellSize),r=Math.floor(cy/cellSize);
+  const c=Math.floor(cx/cellSize);
+  const r=Math.floor(cy/cellSize);
   if(r<0||r>=SIZE||c<0||c>=SIZE)return;
-  if(!state.valid_moves.some(([rr,cc])=>rr==r&&cc==c))return;
+  if(!state.valid_moves||!state.valid_moves.some(([rr,cc])=>rr==r&&cc==c))return;
   doMove(r,c);
 }
-canvas.addEventListener('click',e=>{const r=canvas.getBoundingClientRect();handleClick(e.clientX-r.left,e.clientY-r.top)});
+canvas.addEventListener('click',e=>{
+  const rect=canvas.getBoundingClientRect();
+  handleClick(e.clientX-rect.left,e.clientY-rect.top);
+});
 canvas.addEventListener('touchstart',e=>{
-  const r=canvas.getBoundingClientRect(),t=e.touches[0];
-  handleClick(t.clientX-r.left,t.clientY-r.top);e.preventDefault()
+  const rect=canvas.getBoundingClientRect();
+  const t=e.touches[0];
+  handleClick(t.clientX-rect.left,t.clientY-rect.top);
+  e.preventDefault();
 },{passive:false});
 
+// ---- Make move ----
 async function doMove(r,c){
+  if(!myPlayerId){showToast('❌ Select your slot first');return;}
   try{
-    const res=await fetch('/api/othello/move',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({game_id:gameId,user_id:myId||myColor,row:r,col:c})});
+    const res=await fetch('/api/othello/move',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({game_id:gameId,user_id:myPlayerId,row:r,col:c})
+    });
     const data=await res.json();
     if(data)applyState(data);
   }catch(e){}
 }
 
+// ---- Apply state from server ----
 function applyState(s){
   state=s;
-  blackScore.textContent=s.black_score;whiteScore.textContent=s.white_score;
-  const turnName=s.turn==='b'?s.black?.name:s.white?.name;
+  blackScore.textContent=s.black_score;
+  whiteScore.textContent=s.white_score;
   if(s.game_over){
     const w=s.winner;
-    if(w==='draw'){statusBar.textContent='🤝 Draw! '+s.black_score+' - '+s.white_score;winnerText.textContent='🤝 Draw!'}
-    else{
+    if(w==='draw'){
+      statusBar.textContent='🤝 Draw! '+s.black_score+' - '+s.white_score;
+      winnerText.textContent='🤝 Draw!';
+    }else{
       const wName=w==='black'?s.black?.name:s.white?.name;
       const isMe=!isSpectator&&myColor===(w==='black'?'b':'w');
-      winnerText.textContent=(isMe?'🏆 You Win!':'🏆 '+wName+' Wins!');
+      winnerText.textContent=isMe?'🏆 You Win!':'🏆 '+wName+' Wins!';
     }
     scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
     gameOverOverlay.classList.remove('hidden');
     stopPolling();
     return;
   }
-  statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+(isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
-  playerInfo.textContent=s.black?.name+' (●) vs '+s.white?.name+' (○)';
+  const turnName=s.turn==='b'?s.black?.name:s.white?.name;
+  statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+
+    (isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
+  playerInfo.textContent=(s.black?.name||'?')+' (●) vs '+(s.white?.name||'?')+' (○)';
   draw();
 }
 
+// ---- Polling ----
 async function pollState(){
   if(!gameId)return;
   try{
@@ -217,7 +281,6 @@ async function pollState(){
     if(data&&data.board)applyState(data);
   }catch(e){}
 }
-
 function startPolling(){pollTimer=setInterval(pollState,2000)}
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 
@@ -231,56 +294,72 @@ async function pollChat(){
     const oldLen=chatMsgs.children.length;
     msgs.forEach(m=>{
       if(m.ts<=lastChatTs)return;
-      addChatMsg(m,false);
+      addChatMsg(m);
       lastChatTs=m.ts;
     });
     if(chatMsgs.children.length>oldLen&&!chatOpen)badgeNew();
   }catch(e){}
 }
-
-function badgeNew(){
-  chatBadge.style.display='flex';chatBadge.textContent='N';
-}
-function badgeClear(){
-  chatBadge.style.display='none';
-}
-
-function addChatMsg(m,prepend){
+function badgeNew(){chatBadge.style.display='flex';chatBadge.textContent='N';}
+function badgeClear(){chatBadge.style.display='none';}
+function addChatMsg(m){
   const div=document.createElement('div');
-  const isMe=m.user_id===myId;
+  const isMe=myPlayerId&&m.user_id===myPlayerId;
   div.className='chat-msg '+(isMe?'me':'other');
   const d=new Date(m.ts*1000);
   const time=d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
-  div.innerHTML='<div class="author'+(isMe?'" style="color:#4ade80"':'')+'">'+escHtml(m.name)+'</div>'+escHtml(m.text)+'<div class="time">'+time+'</div>';
-  if(prepend)chatMsgs.prepend(div);
-  else{chatMsgs.appendChild(div);chatMsgs.scrollTop=chatMsgs.scrollHeight}
+  div.innerHTML='<div class="author'+(isMe?'" style="color:#4ade80"':'')+'">'
+    +escHtml(m.name)+'</div>'+escHtml(m.text)+'<div class="time">'+time+'</div>';
+  chatMsgs.appendChild(div);
+  chatMsgs.scrollTop=chatMsgs.scrollHeight;
 }
-
 function escHtml(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
-
 async function sendChat(){
   const text=chatInput.value.trim();
-  if(!text)return;
+  if(!text||!myPlayerId)return;
   chatInput.value='';
   try{
-    await fetch('/api/othello/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({game_id:gameId,user_id:myId,name:myName,text:text})});
-    // immediately poll to show own message
+    await fetch('/api/othello/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({game_id:gameId,user_id:myPlayerId,name:myName,text:text})
+    });
     await pollChat();
   }catch(e){}
 }
-
 chatToggle.addEventListener('click',()=>{
   chatOpen=!chatOpen;
   chatPanel.classList.toggle('open',chatOpen);
   badgeClear();
-  if(chatOpen){chatMsgs.scrollTop=chatMsgs.scrollHeight;pollChat()}
+  if(chatOpen){chatMsgs.scrollTop=chatMsgs.scrollHeight;pollChat();}
 });
-chatClose.addEventListener('click',()=>{chatOpen=false;chatPanel.classList.remove('open')});
-chatInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat()}});
+chatClose.addEventListener('click',()=>{chatOpen=false;chatPanel.classList.remove('open');});
+chatInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendChat();}});
 chatSend.addEventListener('click',sendChat);
 
+// ---- Claim a slot from picker ----
+// This is the key function: it sets myPlayerId to the backend-stored player ID for that slot
+function claimSlot(slotColor){
+  if(!state){showToast('⏳ Game loading...');return;}
+  const slotKey=slotColor==='b'?'black':'white';
+  const player=state[slotKey];
+  if(!player){showToast('❌ Slot not available');return;}
+
+  // myPlayerId MUST match what the backend stored for this slot
+  myPlayerId=String(player.id);
+  myColor=slotColor;
+  myName=player.name||'Player';
+  isSpectator=false;
+
+  pickerOverlay.classList.add('hidden');
+  if(chatInputWrap)chatInputWrap.style.display='flex';
+  showToast('▶ Playing as '+(slotColor==='b'?'⚫ Black':'⚪ White'));
+  applyState(state);  // re-render with move hints
+}
+
+// ---- Init ----
 async function init(){
-  if(!gameId){statusBar.textContent='❌ No game ID';return}
+  if(!gameId){statusBar.textContent='❌ No game ID';return;}
   let data;
   try{
     const res=await fetch('/api/othello/state?game_id='+gameId);
@@ -289,29 +368,33 @@ async function init(){
     statusBar.textContent='❌ Failed to load game';
     return;
   }
-  if(!data||!data.board){statusBar.textContent='❌ Game not found';return}
-
+  if(!data||!data.board){statusBar.textContent='❌ Game not found';return;}
   state=data;
 
-  // Try Mini App auto-identify by strict string comparison
-  if(tg&&myId){
-    if(String(data.black?.id)===String(myId)){
-      myColor='b';isSpectator=false;myName=data.black.name;myId=String(data.black.id);
-    }else if(String(data.white?.id)===String(myId)){
-      myColor='w';isSpectator=false;myName=data.white.name;myId=String(data.white.id);
-    }
-    if(!isSpectator){
+  // Try Telegram Mini App auto-identify using strict string comparison
+  if(tg&&tgUserId){
+    if(String(data.black?.id)===tgUserId){
+      myPlayerId=tgUserId;
+      myColor='b';isSpectator=false;myName=data.black.name;
       pickerOverlay.classList.add('hidden');
-      applyState(data);
-      startPolling();
       if(chatInputWrap)chatInputWrap.style.display='flex';
+      applyState(data);startPolling();
+      chatPollTimer=setInterval(pollChat,2000);
+      tg?.ready();
+      return;
+    }else if(String(data.white?.id)===tgUserId){
+      myPlayerId=tgUserId;
+      myColor='w';isSpectator=false;myName=data.white.name;
+      pickerOverlay.classList.add('hidden');
+      if(chatInputWrap)chatInputWrap.style.display='flex';
+      applyState(data);startPolling();
       chatPollTimer=setInterval(pollChat,2000);
       tg?.ready();
       return;
     }
   }
 
-  // Show picker options so player can select their name or watch
+  // No auto-match → show picker with the actual player names on the buttons
   pickBlack.textContent='● '+(data.black?.name||'Black');
   pickWhite.textContent='○ '+(data.white?.name||'White');
   pickerOverlay.classList.remove('hidden');
@@ -320,33 +403,26 @@ async function init(){
   chatPollTimer=setInterval(pollChat,2000);
 }
 
-function pickPlayer(color){
-  if(!state||!state[color==='b'?'black':'white']){
-    showToast('⏳ Loading game state...');
-    return;
-  }
-  const p = color==='b'?state.black:state.white;
-  myColor=color;
-  isSpectator=false;
-  myName=p.name||'Player';
-  myId=String(p.id);
+// ---- Button listeners ----
+pickBlack.addEventListener('click',()=>claimSlot('b'));
+pickWhite.addEventListener('click',()=>claimSlot('w'));
+pickSpec.addEventListener('click',()=>{
+  isSpectator=true;myPlayerId=null;myColor=null;myName='Spectator';
   pickerOverlay.classList.add('hidden');
-  if(chatInputWrap)chatInputWrap.style.display='flex';
-  showToast('Playing as '+(color==='b'?'Black':'White'));
+  showToast('👀 Watching');
   applyState(state);
+});
+homeBtn.addEventListener('click',()=>{stopPolling();gameOverOverlay.classList.add('hidden');});
+
+function showToast(msg){
+  toast.textContent=msg;
+  toast.classList.add('show');
+  setTimeout(()=>toast.classList.remove('show'),1800);
 }
 
-pickBlack.addEventListener('click',()=>pickPlayer('b'));
-pickWhite.addEventListener('click',()=>pickPlayer('w'));
-pickSpec.addEventListener('click',()=>{
-  pickerOverlay.classList.add('hidden');
-  isSpectator=true;
-  myName='Spectator';
-  showToast('👀 Watching');
-});
-homeBtn.addEventListener('click',()=>{stopPolling();gameOverOverlay.classList.add('hidden')});
-function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),1500)}
-init();resize();
+// ---- Start ----
+init();
+resize();
 </script>
 </body>
 </html>
