@@ -82,3 +82,66 @@ def test_out_of_bounds_move_not_valid():
     for r, c in moves:
         assert 0 <= r < SIZE
         assert 0 <= c < SIZE
+
+
+import pytest
+import asyncio
+from unittest.mock import AsyncMock, patch
+import othello_game
+import ratelimit
+import database
+
+
+@pytest.mark.asyncio
+async def test_create_and_make_move():
+    with patch("database.save_othello_game", new_callable=AsyncMock):
+        gid = await othello_game.create_game("p1", "Player 1", "p2", "Player 2")
+        assert gid in othello_game.games
+        
+        state = othello_game.get_state(gid)
+        assert state["turn"] == "b"
+        assert state["black_score"] == 2
+        assert state["white_score"] == 2
+        assert not state["game_over"]
+
+        # Player 1 (black) makes a valid move at (2, 3)
+        new_state = await othello_game.make_move(gid, "p1", 2, 3)
+        assert new_state is not None
+        assert new_state["turn"] == "w"
+        assert new_state["black_score"] == 4
+        assert new_state["white_score"] == 1
+
+        # Invalid move by player 1 when it's player 2's turn
+        invalid_state = await othello_game.make_move(gid, "p1", 2, 4)
+        assert invalid_state is None
+
+
+def test_chat_messages():
+    gid = "test_chat_gid"
+    othello_game.chat_messages.pop(gid, None)
+    
+    othello_game.add_chat_message(gid, "p1", "Player 1", "Hello world!")
+    msgs = othello_game.get_chat_messages(gid)
+    assert len(msgs) == 1
+    assert msgs[0]["text"] == "Hello world!"
+    assert msgs[0]["name"] == "Player 1"
+
+
+def test_rate_limiter():
+    key = "test_rate_user"
+    ratelimit._limits.pop(key, None)
+    
+    # 5 allowed calls
+    for _ in range(5):
+        assert ratelimit.check_rate_limit(key, max_calls=5, window=10.0) is True
+    
+    # 6th call should be rate limited
+    assert ratelimit.check_rate_limit(key, max_calls=5, window=10.0) is False
+
+
+def test_normalize_persian():
+    raw = "عليك"
+    normalized = database.normalize_persian(raw)
+    assert "ي" not in normalized
+    assert "ك" not in normalized
+

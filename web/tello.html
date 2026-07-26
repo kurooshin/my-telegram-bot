@@ -331,7 +331,10 @@ function pickPlayer(color){
   }
   myColor=color;isSpectator=false;
   myName=color==='b'?state.black.name:state.white.name;
-  if(!myId)myId=color==='b'?'black':'white';
+  if(!myId){
+    let targetId = color==='b'?state.black.id:state.white.id;
+    myId = (targetId !== 'black' && targetId !== 'white') ? targetId : color;
+  }
   pickerOverlay.classList.add('hidden');
   if(chatInputWrap)chatInputWrap.style.display='flex';
   showToast('Playing as '+(color==='b'?'Black':'White'));

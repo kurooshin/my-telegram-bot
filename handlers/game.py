@@ -176,7 +176,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if gid:
             await database.save_othello_lobby(chat_id, othello_game.lobbies.get(chat_id, {}).get('players', []))
             g = othello_game.games[gid]
-            deep_link = f"https://t.me/{BOT_USERNAME}?start=othello_{gid}"
+            uname = BOT_USERNAME or getattr(context.bot, 'username', '') or 'bot'
+            deep_link = f"https://t.me/{uname}?start=othello_{gid}"
 
             await context.bot.send_message(
                 chat_id=chat_id,

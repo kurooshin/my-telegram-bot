@@ -154,22 +154,25 @@ async def create_game(black_id: str, black_name: str, white_id: str, white_name:
     return gid
 
 
+def _parse_json(val, default):
+    """Safely parse JSON data if returned as a string by asyncpg."""
+    if val is None:
+        return default
+    if isinstance(val, str):
+        try:
+            return json.loads(val)
+        except Exception:
+            return default
+    return val
+
+
 def get_state(gid: str) -> dict | None:
     """Return the full game state dict for the frontend, or None if not found."""
     g = games.get(gid)
     if not g:
         return None
     b, w = counts(g['board'])
-    valid = valid_moves(g['board'], g['turn'])
-    if not valid:
-        opp = 'w' if g['turn'] == 'b' else 'b'
-        opp_valid = valid_moves(g['board'], opp)
-        if not opp_valid:
-            g['game_over'] = True
-            g['winner'] = 'draw' if b == w else ('black' if b > w else 'white')
-        else:
-            g['turn'] = opp
-            valid = valid_moves(g['board'], g['turn'])
+    valid = [] if g['game_over'] else valid_moves(g['board'], g['turn'])
     return {
         'board': g['board'],
         'turn': g['turn'],
@@ -190,9 +193,9 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
     if not g or g['game_over']:
         return None
     color = None
-    if g['black']['id'] == user_id or user_id == 'black':
+    if str(g['black']['id']) == str(user_id) or str(user_id) == 'black':
         color = 'b'
-    elif g['white']['id'] == user_id or user_id == 'white':
+    elif str(g['white']['id']) == str(user_id) or str(user_id) == 'white':
         color = 'w'
     if not color or g['turn'] != color:
         return None
@@ -203,13 +206,21 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
     apply_move(board, r, c, color)
     g['last_move'] = (r, c)
     g['last_move_time'] = time.time()
-    g['turn'] = 'w' if color == 'b' else 'b'
-
-    b, w = counts(board)
-    if not valid_moves(board, g['turn']):
-        opp = 'w' if g['turn'] == 'b' else 'b'
-        if not valid_moves(board, opp):
+    
+    next_turn = 'w' if color == 'b' else 'b'
+    next_valid = valid_moves(board, next_turn)
+    
+    if next_valid:
+        g['turn'] = next_turn
+    else:
+        # Opponent has no legal moves -> check if current player can move
+        same_valid = valid_moves(board, color)
+        if same_valid:
+            g['turn'] = color
+        else:
+            # Neither player has legal moves -> game over
             g['game_over'] = True
+            b, w = counts(board)
             g['winner'] = 'draw' if b == w else ('black' if b > w else 'white')
             _cancel_game_timeout(gid)
 
@@ -269,7 +280,7 @@ def add_chat_message(gid: str, user_id: str, name: str, text: str) -> None:
     if gid not in chat_messages:
         chat_messages[gid] = []
     chat_messages[gid].append({
-        'user_id': user_id,
+        'user_id': str(user_id),
         'name': name,
         'text': text[:500],
         'ts': int(time.time())
@@ -288,14 +299,16 @@ async def restore_games() -> None:
     rows = await database.load_othello_games()
     for row in rows:
         gid = row['game_id']
+        board = _parse_json(row['board'], new_board())
+        last_move = _parse_json(row['last_move'], None)
         games[gid] = {
-            'board': row['board'],
+            'board': board,
             'turn': row['turn'],
-            'black': {'id': row['black_id'], 'name': row['black_name']},
-            'white': {'id': row['white_id'], 'name': row['white_name']},
-            'game_over': row['game_over'],
+            'black': {'id': str(row['black_id']), 'name': row['black_name']},
+            'white': {'id': str(row['white_id']), 'name': row['white_name']},
+            'game_over': bool(row['game_over']),
             'winner': row['winner'],
-            'last_move': row['last_move'],
+            'last_move': last_move,
             'last_move_time': time.time(),
         }
         if not row['game_over']:
@@ -306,4 +319,6 @@ async def restore_lobbies() -> None:
     """Reload lobbies from the database into the in-memory store."""
     rows = await database.load_othello_lobbies()
     for row in rows:
-        lobbies[row['chat_id']] = {'players': row['players']}
+        players = _parse_json(row['players'], [])
+        lobbies[row['chat_id']] = {'players': players}
+

@@ -14,7 +14,6 @@ from handlers.admin_panel import panel_conversation, toggle_group_handler
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
 from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler, start_handler
-from handlers.game import BOT_USERNAME as _game_bot_username
 import othello_game
 
 logging.basicConfig(
@@ -168,15 +167,13 @@ class OthelloChatHandler(tornado.web.RequestHandler):
             self.write(json.dumps({'ok': False}))
 
 
-async def shutdown(sig, application, tornado_app):
-    logger.info(f"Received {sig.name}, shutting down...")
-    await database.close_pool()
-    tornado_app.stop()
-    await application.stop()
-    asyncio.get_event_loop().stop()
+async def shutdown(sig, stop_event):
+    logger.info(f"Received {sig.name}, initiating graceful shutdown...")
+    stop_event.set()
 
 
 async def main():
+    config.check_config()
     await database.init_db()
 
     await othello_game.restore_games()
@@ -232,16 +229,20 @@ async def main():
     tornado_app.listen(port_number, "0.0.0.0")
     logger.info("Bot and game server running on port %d", port_number)
 
-    loop = asyncio.get_event_loop()
+    stop_event = asyncio.Event()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(shutdown(s, application, tornado_app)))
+        loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(shutdown(s, stop_event)))
 
     try:
-        await asyncio.Event().wait()
+        await stop_event.wait()
     finally:
+        logger.info("Shutting down bot server...")
+        tornado_app.stop()
         await database.close_pool()
         await application.stop()
 
 
 if __name__ == '__main__':
     asyncio.run(main())
+

@@ -63,6 +63,15 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
     return ConversationHandler.END
 
 
+def _esc_md(text: str) -> str:
+    """Escape Telegram Markdown v1 special characters."""
+    if not text:
+        return ""
+    for char in ('_', '*', '`', '['):
+        text = text.replace(char, f'\\{char}')
+    return text
+
+
 async def display_beautiful_keywords(query, prefix=""):
     pool = await database.get_pool()
     async with pool.acquire() as conn:
@@ -74,8 +83,10 @@ async def display_beautiful_keywords(query, prefix=""):
         keyboard = []
         for i, r in enumerate(rows, 1):
             mt = "🔴" if r['match_type'] == 'exact' else "🟢"
-            text += f"{i}. `{r['keyword']}` = {r['response']} {mt}\n"
-            keyboard.append([InlineKeyboardButton(f"🗑 Delete {i} ({r['keyword']})", callback_data=f"del_{r['id']}")])
+            kw_safe = _esc_md(r['keyword'])
+            res_safe = _esc_md(r['response'])
+            text += f"{i}. `{kw_safe}` = {res_safe} {mt}\n"
+            keyboard.append([InlineKeyboardButton(f"🗑 Delete {i} ({r['keyword'][:15]})", callback_data=f"del_{r['id']}")])
         await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -90,7 +101,8 @@ async def display_beautiful_admins(query, prefix=""):
         keyboard = []
         for i, r in enumerate(rows, 1):
             role_emoji = "👑" if r['role'] == 'admin' else "👤"
-            text += f"{i}. {role_emoji} `{r['user_id']}` — {r['name']} ({r['role']})\n"
+            name_safe = _esc_md(r['name'] or 'Unknown')
+            text += f"{i}. {role_emoji} `{r['user_id']}` — {name_safe} ({r['role']})\n"
             if r['role'] == 'co_admin':
                 keyboard.append([InlineKeyboardButton(f"🗑 Remove {r['name']}", callback_data=f"remad_{r['user_id']}")])
         markup = InlineKeyboardMarkup(keyboard) if keyboard else None
@@ -230,3 +242,4 @@ panel_conversation = ConversationHandler(
     per_message=False,
     allow_reentry=True
 )
+
