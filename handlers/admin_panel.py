@@ -1,10 +1,12 @@
 """Admin panel — keyword management, co-admin management, group toggling."""
 
+import logging
 import warnings
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import database
 
+logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*")
 
 ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME = range(5)
@@ -73,12 +75,21 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
             await display_beautiful_admins(query)
         elif query.data == "btn_toggle_ai":
             chat = update.effective_chat
-            current = await database.is_ai_enabled(chat.id)
+            chat_id = chat.id
+            current = await database.is_ai_enabled(chat_id)
             new_state = not current
-            ok = await database.set_ai_enabled(chat.id, new_state, title=chat.title)
+            logger.info("AI toggle: chat_id=%s current=%s new=%s", chat_id, current, new_state)
+            ok = await database.set_ai_enabled(chat_id, new_state, title=chat.title)
             if not ok:
-                logger.error("AI toggle DB write returned False for chat %s", chat.id)
+                logger.error("AI toggle FAILED: chat_id=%s write returned False", chat_id)
                 await query.edit_message_text("❌ خطا در ذخیره‌سازی وضعیت AI در دیتابیس. لاگ را بررسی کن.")
+                return ConversationHandler.END
+            # Read back immediately to confirm persistence
+            verify = await database.is_ai_enabled(chat_id)
+            logger.info("AI toggle: chat_id=%s verify read-back=%s (expected=%s)", chat_id, verify, new_state)
+            if verify != new_state:
+                logger.error("AI toggle MISMATCH: chat_id=%s wrote=%s read-back=%s", chat_id, new_state, verify)
+                await query.edit_message_text("❌ خطا: وضعیت AI ذخیره شد اما تأیید نشد. دوباره تلاش کن.")
                 return ConversationHandler.END
             status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
             await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
