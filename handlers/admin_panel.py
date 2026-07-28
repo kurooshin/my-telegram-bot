@@ -249,7 +249,27 @@ async def toggle_group_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"Group `{target_id}` {status}.")
 
 
+async def debug_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """موقت — ردیف خام دیتابیس این چت رو نشون میده برای عیب‌یابی"""
+    user_id = update.effective_user.id
+    role = await database.get_role(user_id)
+    if not role:
+        return
+    chat = update.effective_chat
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT * FROM bot_groups WHERE group_id = $1', chat.id)
+    if not row:
+        await update.message.reply_text(f"❌ No row found for chat_id={chat.id}")
+        return
+    await update.message.reply_text(
+        f"chat_id: {chat.id}\nis_active: {row['is_active']}\n"
+        f"ai_enabled: {row['ai_enabled']}\nupdated_at: {row['updated_at']}"
+    )
+
+
 toggle_group_handler = CommandHandler("toggle_group", toggle_group_command)
+debug_ai_handler = CommandHandler("debug_ai", debug_ai_command)
 
 panel_conversation = ConversationHandler(
     entry_points=[
