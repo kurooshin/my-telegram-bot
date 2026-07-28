@@ -76,7 +76,7 @@ async def init_db() -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
-        await conn.execute("ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT FALSE")
+        await _migrate_bot_groups(conn)
 
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS unmatched_messages (
@@ -135,6 +135,64 @@ async def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+
+async def _migrate_bot_groups(conn):
+    """Idempotent migration: sync bot_groups columns with the current schema.
+
+    Handles:
+      - missing group_id column
+      - legacy chat_id column (rename to group_id)
+      - missing UNIQUE constraint on group_id
+      - missing title / is_active / ai_enabled / updated_at columns
+    Safe to run multiple times (all ALTERs use IF NOT EXISTS / IF EXISTS).
+    """
+    # 1. Detect legacy schema — rename chat_id → group_id if present
+    legacy = await conn.fetch(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'bot_groups' AND column_name = 'chat_id'"
+    )
+    if legacy:
+        logger.warning("bot_groups: renaming legacy 'chat_id' → 'group_id'")
+        await conn.execute("ALTER TABLE bot_groups RENAME COLUMN chat_id TO group_id")
+
+    # 2. Add group_id if completely missing (no legacy column either)
+    has_group_id = await conn.fetch(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'bot_groups' AND column_name = 'group_id'"
+    )
+    if not has_group_id:
+        logger.warning("bot_groups: adding missing 'group_id' column")
+        await conn.execute("ALTER TABLE bot_groups ADD COLUMN group_id BIGINT")
+
+    # 3. Ensure NOT NULL + UNIQUE on group_id
+    #    (first clean up any NULLs left from legacy data)
+    await conn.execute("UPDATE bot_groups SET group_id = 0 WHERE group_id IS NULL")
+    try:
+        await conn.execute("ALTER TABLE bot_groups ALTER COLUMN group_id SET NOT NULL")
+    except Exception:
+        pass  # already NOT NULL
+    try:
+        await conn.execute(
+            "ALTER TABLE bot_groups ADD CONSTRAINT bot_groups_group_id_key UNIQUE (group_id)"
+        )
+    except asyncpg.DuplicateObjectError:
+        pass  # constraint already exists
+
+    # 4. Add every remaining column the code expects, if missing
+    migrations = [
+        ("title", "TEXT DEFAULT 'بدون نام'"),
+        ("is_active", "BOOLEAN DEFAULT TRUE"),
+        ("ai_enabled", "BOOLEAN DEFAULT FALSE"),
+        ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+    ]
+    for col_name, col_type in migrations:
+        try:
+            await conn.execute(
+                f"ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS {col_name} {col_type}"
+            )
+        except Exception:
+            pass
 
 
 async def save_othello_game(
