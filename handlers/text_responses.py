@@ -28,7 +28,7 @@ async def _keyword_fallback(update: Update, incoming_text: str) -> bool:
                 await update.message.reply_text(row['response'])
                 return True
     except Exception as e:
-        logger.error("Keyword matching error: %s", e)
+        logger.error("Keyword matching error: %s", e, exc_info=True)
     return False
 
 
@@ -38,6 +38,10 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat = update.effective_chat
     incoming_text = database.normalize_persian(update.message.text.strip())
+    logger.info(
+        "[MONITOR] Text received: chat_id=%s chat_type=%s text='%s' user_id=%s",
+        chat.id, chat.type, incoming_text[:80], update.effective_user.id,
+    )
 
     pool = await database.get_pool()
     async with pool.acquire() as conn:
@@ -50,35 +54,51 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ''', chat.id, chat.title)
                 is_active = await conn.fetchval('SELECT is_active FROM bot_groups WHERE group_id = $1', chat.id)
                 if is_active is False:
+                    logger.info("[MONITOR] Group %s is inactive — ignoring message", chat.id)
                     return
             except Exception as e:
                 logger.warning("Group tracking failed for %s: %s", chat.id, e)
 
     # Step 1: Check AI status
-    if await database.is_ai_enabled(chat.id):
+    ai_enabled = await database.is_ai_enabled(chat.id)
+    logger.info("[MONITOR] AI status for chat_id=%s: enabled=%s", chat.id, ai_enabled)
+
+    if ai_enabled:
+        logger.info("[MONITOR] AI path: calling Gemini for chat_id=%s", chat.id)
         try:
             history = await database.get_chat_history(chat.id, limit=6)
             known_facts = await database.get_all_keywords()
             reply = await ai_service.get_ai_reply(
                 incoming_text, history=history, known_facts=known_facts
             )
+            logger.info(
+                "[MONITOR] Gemini raw response for chat_id=%s: %s",
+                chat.id, "None" if reply is None else f"'{reply[:100]}'",
+            )
             if reply:
                 await update.message.reply_text(reply)
                 await database.save_chat_turn(chat.id, incoming_text, reply, keep_last=6)
+                logger.info("[MONITOR] AI reply sent to chat_id=%s (len=%s)", chat.id, len(reply))
                 return
         except Exception as e:
-            logger.error("AI reply error for %s: %s", chat.id, e)
+            logger.error("[MONITOR] AI reply exception for chat_id=%s: %s", chat.id, e, exc_info=True)
 
         # AI returned None (rate limit / error) → fallback to keywords
-        if await _keyword_fallback(update, incoming_text):
+        kw_matched = await _keyword_fallback(update, incoming_text)
+        logger.info("[MONITOR] AI fallback keyword match for chat_id=%s: matched=%s", chat.id, kw_matched)
+        if kw_matched:
             return
         await database.log_unmatched(incoming_text, chat.id)
+        logger.info("[MONITOR] Unmatched (AI path) — chat_id=%s text='%s'", chat.id, incoming_text[:60])
         return
 
     # Step 2: AI disabled — keyword matching only
-    if await _keyword_fallback(update, incoming_text):
+    kw_matched = await _keyword_fallback(update, incoming_text)
+    logger.info("[MONITOR] Keyword-only path for chat_id=%s: matched=%s", chat.id, kw_matched)
+    if kw_matched:
         return
     await database.log_unmatched(incoming_text, chat.id)
+    logger.info("[MONITOR] Unmatched (no-AI path) — chat_id=%s text='%s'", chat.id, incoming_text[:60])
 
 
 keyword_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_keywords)

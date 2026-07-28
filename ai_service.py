@@ -118,16 +118,22 @@ async def get_ai_reply(
     Returns None on rate-limit hit, API error, or if no API key is configured.
     """
     if not config.GEMINI_API_KEY:
-        logger.debug("GEMINI_API_KEY not set, skipping AI reply")
+        logger.warning("GEMINI_API_KEY not set — AI replies disabled")
         return None
 
     if not _rate_limit_ok():
+        logger.warning("Rate limit hit for Gemini — returning None")
         return None
 
     model = _get_model()
     if model is None:
         logger.error("Gemini model could not be initialized")
         return None
+
+    logger.info(
+        "Gemini API call: text_len=%d history_len=%d known_facts=%d",
+        len(user_text), len(history) if history else 0, len(known_facts) if known_facts else 0,
+    )
 
     # Build context string from known facts
     context = ""
@@ -153,11 +159,14 @@ async def get_ai_reply(
 
         # Run Gemini call in a thread pool to avoid blocking the event loop
         loop = asyncio.get_running_loop()
+        logger.debug("Gemini: sending request...")
         response = await loop.run_in_executor(
             None,
             lambda: model.generate_content(contents),
         )
-        return response.text.strip() if response and response.text else None
+        result = response.text.strip() if response and response.text else None
+        logger.info("Gemini: response received — has_text=%s len=%s", result is not None, len(result) if result else 0)
+        return result
 
     except Exception as e:
         logger.error("Gemini API error: %s", e, exc_info=True)
