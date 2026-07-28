@@ -1,9 +1,10 @@
-"""Handles all non-command text messages — group tracking and keyword matching."""
+"""Handles all non-command text messages — group tracking, keyword matching, and AI replies."""
 
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
 import database
+import ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning("Group tracking failed for %s: %s", chat.id, e)
 
+        # Step 1: Try keyword match first
         try:
             row = await conn.fetchrow('''
                 SELECT response FROM bot_keywords WHERE
@@ -43,8 +45,29 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ''', incoming_text)
             if row:
                 await update.message.reply_text(row['response'])
+                return
         except Exception as e:
             logger.error("Keyword matching error: %s", e)
+            return
+
+    # Step 2: No keyword matched — try AI
+    try:
+        if not await database.is_ai_enabled(chat.id):
+            await database.log_unmatched(incoming_text, chat.id)
+            return
+
+        history = await database.get_chat_history(chat.id, limit=6)
+        known_facts = await database.get_all_keywords()
+
+        reply = await ai_service.get_ai_reply(incoming_text, history=history, known_facts=known_facts)
+
+        if reply:
+            await update.message.reply_text(reply)
+            await database.save_chat_turn(chat.id, incoming_text, reply, keep_last=6)
+        else:
+            await database.log_unmatched(incoming_text, chat.id)
+    except Exception as e:
+        logger.error("AI reply error for %s: %s", chat.id, e)
 
 
 keyword_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_keywords)

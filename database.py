@@ -72,6 +72,27 @@ async def init_db() -> None:
                 group_id BIGINT UNIQUE NOT NULL,
                 title TEXT DEFAULT 'بدون نام',
                 is_active BOOLEAN DEFAULT TRUE,
+                ai_enabled BOOLEAN DEFAULT FALSE,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+        await conn.execute("ALTER TABLE bot_groups ADD COLUMN IF NOT EXISTS ai_enabled BOOLEAN DEFAULT FALSE")
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS unmatched_messages (
+                id SERIAL PRIMARY KEY,
+                text TEXT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                frequency INTEGER DEFAULT 1,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(text, chat_id)
+            );
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS chat_context (
+                chat_id BIGINT PRIMARY KEY,
+                last_messages JSONB NOT NULL DEFAULT '[]',
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
@@ -205,3 +226,123 @@ async def get_leaderboard(limit: int = 10) -> list[dict]:
             LIMIT $1
         ''', limit)
         return [dict(r) for r in rows]
+
+
+async def is_ai_enabled(chat_id: int) -> bool:
+    """Check whether AI replies are enabled for this chat."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            val = await conn.fetchval(
+                'SELECT ai_enabled FROM bot_groups WHERE group_id = $1', chat_id
+            )
+            return bool(val) if val is not None else False
+    except Exception as e:
+        logger.error("is_ai_enabled error for %s: %s", chat_id, e)
+        return False
+
+
+async def set_ai_enabled(chat_id: int, enabled: bool, title: str | None = None) -> None:
+    """Turn AI on/off for a chat. Upserts the group if missing."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bot_groups (group_id, title, ai_enabled, updated_at)
+                VALUES ($1, COALESCE($2, 'بدون نام'), $3, CURRENT_TIMESTAMP)
+                ON CONFLICT (group_id) DO UPDATE SET
+                    ai_enabled = $3,
+                    title = COALESCE($2, bot_groups.title),
+                    updated_at = CURRENT_TIMESTAMP
+            """, chat_id, title, enabled)
+    except Exception as e:
+        logger.error("set_ai_enabled error for %s: %s", chat_id, e)
+
+
+async def get_all_keywords() -> list[dict]:
+    """Return all keyword-response pairs."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                'SELECT keyword, response, match_type FROM bot_keywords ORDER BY id'
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error("get_all_keywords error: %s", e)
+        return []
+
+
+async def log_unmatched(text: str, chat_id: int) -> None:
+    """Log or increment frequency of an unmatched message."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO unmatched_messages (text, chat_id, frequency, last_seen)
+                VALUES ($1, $2, 1, CURRENT_TIMESTAMP)
+                ON CONFLICT (text, chat_id) DO UPDATE SET
+                    frequency = unmatched_messages.frequency + 1,
+                    last_seen = CURRENT_TIMESTAMP
+            """, text, chat_id)
+    except Exception as e:
+        logger.error("log_unmatched error: %s", e)
+
+
+async def get_top_unmatched(limit: int = 15) -> list[dict]:
+    """Return most frequent unmatched messages grouped by text."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT text, SUM(frequency)::int AS total
+                FROM unmatched_messages
+                GROUP BY text
+                ORDER BY total DESC
+                LIMIT $1
+            """, limit)
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error("get_top_unmatched error: %s", e)
+        return []
+
+
+async def get_chat_history(chat_id: int, limit: int = 6) -> list[dict]:
+    """Read last N conversation turns for a chat."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchval(
+                'SELECT last_messages FROM chat_context WHERE chat_id = $1', chat_id
+            )
+            if row:
+                messages = json.loads(row) if isinstance(row, str) else row
+                return list(messages)[-limit:]
+            return []
+    except Exception as e:
+        logger.error("get_chat_history error for %s: %s", chat_id, e)
+        return []
+
+
+async def save_chat_turn(chat_id: int, user_text: str, bot_text: str, keep_last: int = 6) -> None:
+    """Save one conversation turn, keeping only the last N turns."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                'SELECT last_messages FROM chat_context WHERE chat_id = $1', chat_id
+            )
+            messages = json.loads(existing) if isinstance(existing, str) else (list(existing) if existing else [])
+            messages.append({"role": "user", "content": user_text})
+            messages.append({"role": "assistant", "content": bot_text})
+            messages = messages[-keep_last * 2:]
+
+            await conn.execute("""
+                INSERT INTO chat_context (chat_id, last_messages, updated_at)
+                VALUES ($1, $2::jsonb, CURRENT_TIMESTAMP)
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    last_messages = $2::jsonb,
+                    updated_at = CURRENT_TIMESTAMP
+            """, chat_id, json.dumps(messages))
+    except Exception as e:
+        logger.error("save_chat_turn error for %s: %s", chat_id, e)

@@ -3,6 +3,7 @@ import os
 TOKEN = os.environ.get("BOT_TOKEN", "123456789:TEST_BOT_TOKEN")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "http://localhost:8080")
 DB_URI = os.environ.get("DATABASE_URL", "postgresql://user:pass@localhost:5432/dbname")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")ABASE_URL", "postgresql://user:pass@localhost:5432/dbname")
 
 _admin_id_raw = os.environ.get("ADMIN_ID", "0")
 try:

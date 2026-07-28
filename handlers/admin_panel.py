@@ -16,9 +16,17 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not role:
         return ConversationHandler.END
 
+    chat = update.effective_chat
+
+    # Check current AI status for this chat
+    ai_on = await database.is_ai_enabled(chat.id) if chat else False
+    ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
+
     keyboard = [
         [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
-        [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")]
+        [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
+        [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai")],
+        [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
     ]
     if role == 'admin':
         keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
@@ -47,6 +55,23 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         await display_beautiful_keywords(query)
     elif query.data == "btn_list_ad" and role == 'admin':
         await display_beautiful_admins(query)
+    elif query.data == "btn_toggle_ai":
+        chat = update.effective_chat
+        current = await database.is_ai_enabled(chat.id)
+        new_state = not current
+        await database.set_ai_enabled(chat.id, new_state, title=chat.title)
+        status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
+        await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
+    elif query.data == "btn_unmatched":
+        top = await database.get_top_unmatched(limit=15)
+        if not top:
+            await query.edit_message_text("ℹ️ هنوز پیام بی‌جوابی ثبت نشده.")
+            return
+        lines = ["💡 **پیام‌های بی‌جواب پرتکرار:**\n"]
+        for i, item in enumerate(top, 1):
+            txt = _esc_md(item['text'][:40])
+            lines.append(f"{i}. `{txt}` — {item['total']} بار")
+        await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
     elif query.data.startswith("del_"):
         kw_id = int(query.data.split("_")[1])
         pool = await database.get_pool()
