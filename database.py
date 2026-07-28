@@ -47,7 +47,9 @@ async def close_pool() -> None:
 
 
 async def init_db() -> None:
-    """Create all required tables if they don't exist, and seed the admin account."""
+    """Create all required tables if they don't exist, and seed the admin account.
+    Migration failures are logged but do NOT crash the bot — the server will
+    still start and serve existing functionality."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute('''
@@ -76,7 +78,10 @@ async def init_db() -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
-        await _migrate_bot_groups(conn)
+        try:
+            await _migrate_bot_groups(conn)
+        except Exception as e:
+            logger.error("bot_groups migration failed (non-fatal): %s", e, exc_info=True)
 
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS unmatched_messages (
@@ -172,12 +177,18 @@ async def _migrate_bot_groups(conn):
         await conn.execute("ALTER TABLE bot_groups ALTER COLUMN group_id SET NOT NULL")
     except Exception:
         pass  # already NOT NULL
-    try:
-        await conn.execute(
-            "ALTER TABLE bot_groups ADD CONSTRAINT bot_groups_group_id_key UNIQUE (group_id)"
-        )
-    except asyncpg.DuplicateObjectError:
-        pass  # constraint already exists
+
+    # Check if the constraint already exists before trying to create it
+    has_constraint = await conn.fetchval(
+        "SELECT 1 FROM pg_constraint WHERE conname = 'bot_groups_group_id_key'"
+    )
+    if not has_constraint:
+        try:
+            await conn.execute(
+                "ALTER TABLE bot_groups ADD CONSTRAINT bot_groups_group_id_key UNIQUE (group_id)"
+            )
+        except Exception as e:
+            logger.warning("Could not add UNIQUE constraint on group_id: %s", e)
 
     # 4. Add every remaining column the code expects, if missing
     migrations = [

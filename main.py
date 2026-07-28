@@ -174,7 +174,10 @@ async def shutdown(sig, stop_event):
 
 async def main():
     config.check_config()
-    await database.init_db()
+    try:
+        await database.init_db()
+    except Exception as e:
+        logger.error("Database init failed (non-fatal, trying to continue): %s", e, exc_info=True)
 
     await othello_game.restore_games()
     await othello_game.restore_lobbies()
