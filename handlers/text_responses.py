@@ -9,6 +9,29 @@ import ai_service
 logger = logging.getLogger(__name__)
 
 
+async def _keyword_fallback(update: Update, incoming_text: str) -> bool:
+    """Try keyword matching. Returns True if a reply was sent."""
+    pool = await database.get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow('''
+                SELECT response FROM bot_keywords WHERE
+                    (match_type = 'exact' AND LOWER(keyword) = LOWER($1))
+                    OR
+                    (match_type = 'flexible' AND POSITION(LOWER(keyword) IN LOWER($1)) > 0)
+                ORDER BY
+                    CASE WHEN match_type = 'exact' THEN 0 ELSE 1 END,
+                    LENGTH(keyword) DESC
+                LIMIT 1
+            ''', incoming_text)
+            if row:
+                await update.message.reply_text(row['response'])
+                return True
+    except Exception as e:
+        logger.error("Keyword matching error: %s", e)
+    return False
+
+
 async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -31,43 +54,31 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning("Group tracking failed for %s: %s", chat.id, e)
 
-        # Step 1: Try keyword match first
+    # Step 1: Check AI status
+    if await database.is_ai_enabled(chat.id):
         try:
-            row = await conn.fetchrow('''
-                SELECT response FROM bot_keywords WHERE
-                    (match_type = 'exact' AND LOWER(keyword) = LOWER($1))
-                    OR
-                    (match_type = 'flexible' AND POSITION(LOWER(keyword) IN LOWER($1)) > 0)
-                ORDER BY
-                    CASE WHEN match_type = 'exact' THEN 0 ELSE 1 END,
-                    LENGTH(keyword) DESC
-                LIMIT 1
-            ''', incoming_text)
-            if row:
-                await update.message.reply_text(row['response'])
+            history = await database.get_chat_history(chat.id, limit=6)
+            known_facts = await database.get_all_keywords()
+            reply = await ai_service.get_ai_reply(
+                incoming_text, history=history, known_facts=known_facts
+            )
+            if reply:
+                await update.message.reply_text(reply)
+                await database.save_chat_turn(chat.id, incoming_text, reply, keep_last=6)
                 return
         except Exception as e:
-            logger.error("Keyword matching error: %s", e)
+            logger.error("AI reply error for %s: %s", chat.id, e)
+
+        # AI returned None (rate limit / error) → fallback to keywords
+        if await _keyword_fallback(update, incoming_text):
             return
+        await database.log_unmatched(incoming_text, chat.id)
+        return
 
-    # Step 2: No keyword matched — try AI
-    try:
-        if not await database.is_ai_enabled(chat.id):
-            await database.log_unmatched(incoming_text, chat.id)
-            return
-
-        history = await database.get_chat_history(chat.id, limit=6)
-        known_facts = await database.get_all_keywords()
-
-        reply = await ai_service.get_ai_reply(incoming_text, history=history, known_facts=known_facts)
-
-        if reply:
-            await update.message.reply_text(reply)
-            await database.save_chat_turn(chat.id, incoming_text, reply, keep_last=6)
-        else:
-            await database.log_unmatched(incoming_text, chat.id)
-    except Exception as e:
-        logger.error("AI reply error for %s: %s", chat.id, e)
+    # Step 2: AI disabled — keyword matching only
+    if await _keyword_fallback(update, incoming_text):
+        return
+    await database.log_unmatched(incoming_text, chat.id)
 
 
 keyword_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, monitor_keywords)
