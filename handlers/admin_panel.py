@@ -44,61 +44,69 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = update.effective_user.id
-    role = await database.get_role(user_id)
-    await query.answer()
-    if not role:
-        return
 
-    if query.data == "btn_add_kw":
-        await query.edit_message_text("📝 Send the new keyword:")
-        return ADD_KEYWORD
-    elif query.data == "btn_add_co" and role == 'admin':
-        await query.edit_message_text("🆔 Send the co-admin's numeric user ID:")
-        return ADD_CO_ID
-    elif query.data == "btn_list_kw":
-        await display_beautiful_keywords(query)
-    elif query.data == "btn_list_ad" and role == 'admin':
-        await display_beautiful_admins(query)
-    elif query.data == "btn_toggle_ai":
-        try:
+    # Always acknowledge the callback FIRST — before any DB calls,
+    # so the Telegram loading spinner stops even if something crashes later.
+    await query.answer()
+
+    try:
+        user_id = update.effective_user.id
+        role = await database.get_role(user_id)
+        if not role:
+            await query.edit_message_text("⛔ دسترسی غیرمجاز. شما ادمین نیستید.")
+            return ConversationHandler.END
+    except Exception as e:
+        logger.error("Role check error in inline_button_router: %s", e, exc_info=True)
+        await query.edit_message_text("❌ خطا در بررسی دسترسی. لاگ را بررسی کن.")
+        return ConversationHandler.END
+
+    try:
+        if query.data == "btn_add_kw":
+            await query.edit_message_text("📝 Send the new keyword:")
+            return ADD_KEYWORD
+        elif query.data == "btn_add_co" and role == 'admin':
+            await query.edit_message_text("🆔 Send the co-admin's numeric user ID:")
+            return ADD_CO_ID
+        elif query.data == "btn_list_kw":
+            await display_beautiful_keywords(query)
+        elif query.data == "btn_list_ad" and role == 'admin':
+            await display_beautiful_admins(query)
+        elif query.data == "btn_toggle_ai":
             chat = update.effective_chat
             current = await database.is_ai_enabled(chat.id)
             new_state = not current
             ok = await database.set_ai_enabled(chat.id, new_state, title=chat.title)
-
             if not ok:
                 logger.error("AI toggle DB write returned False for chat %s", chat.id)
                 await query.edit_message_text("❌ خطا در ذخیره‌سازی وضعیت AI در دیتابیس. لاگ را بررسی کن.")
-                return
-
+                return ConversationHandler.END
             status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
             await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
-        except Exception as e:
-            logger.error("AI toggle error for %s: %s", update.effective_chat.id, e, exc_info=True)
-            await query.edit_message_text("❌ خطای غیرمنتظره در تغییر وضعیت AI. لاگ را بررسی کن.")
-    elif query.data == "btn_unmatched":
-        top = await database.get_top_unmatched(limit=15)
-        if not top:
-            await query.edit_message_text("ℹ️ هنوز پیام بی‌جوابی ثبت نشده.")
-            return
-        lines = ["💡 **پیام‌های بی‌جواب پرتکرار:**\n"]
-        for i, item in enumerate(top, 1):
-            txt = _esc_md(item['text'][:40])
-            lines.append(f"{i}. `{txt}` — {item['total']} بار")
-        await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
-    elif query.data.startswith("del_"):
-        kw_id = int(query.data.split("_")[1])
-        pool = await database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute('DELETE FROM bot_keywords WHERE id = $1', kw_id)
-            await display_beautiful_keywords(query, "✅ Keyword deleted.\n\n")
-    elif query.data.startswith("remad_") and role == 'admin':
-        co_id = int(query.data.split("_")[1])
-        pool = await database.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM bot_admins WHERE user_id = $1 AND role = 'co_admin'", co_id)
-            await display_beautiful_admins(query, "✅ Co-admin removed.\n\n")
+        elif query.data == "btn_unmatched":
+            top = await database.get_top_unmatched(limit=15)
+            if not top:
+                await query.edit_message_text("ℹ️ هنوز پیام بی‌جوابی ثبت نشده.")
+                return ConversationHandler.END
+            lines = ["💡 **پیام‌های بی‌جواب پرتکرار:**\n"]
+            for i, item in enumerate(top, 1):
+                txt = _esc_md(item['text'][:40])
+                lines.append(f"{i}. `{txt}` — {item['total']} بار")
+            await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
+        elif query.data.startswith("del_"):
+            kw_id = int(query.data.split("_")[1])
+            pool = await database.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute('DELETE FROM bot_keywords WHERE id = $1', kw_id)
+                await display_beautiful_keywords(query, "✅ Keyword deleted.\n\n")
+        elif query.data.startswith("remad_") and role == 'admin':
+            co_id = int(query.data.split("_")[1])
+            pool = await database.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM bot_admins WHERE user_id = $1 AND role = 'co_admin'", co_id)
+                await display_beautiful_admins(query, "✅ Co-admin removed.\n\n")
+    except Exception as e:
+        logger.error("Callback handler error for %s: %s", query.data, e, exc_info=True)
+        await query.edit_message_text("❌ خطا در پردازش درخواست. لاگ را بررسی کن.")
 
     return ConversationHandler.END
 
