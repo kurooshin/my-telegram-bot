@@ -131,9 +131,11 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     data = query.data
 
-    await query.answer()
+    # NOTE: Do NOT call query.answer() here unconditionally.
+    # Each branch must answer the query exactly once, with the appropriate message.
 
     if data == "oth_hub":
+        await query.answer()
         othello_game.get_or_create_lobby(chat_id)
         schedule_lobby_timeout(chat_id, context.bot)
         text = othello_game.lobby_text(chat_id)
@@ -155,12 +157,13 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         schedule_lobby_timeout(chat_id, context.bot)
 
         if not ok and err:
-            try:
-                await query.answer(err, show_alert=True)
-            except Exception:
-                pass
+            # Answer with the error message as a popup alert — the ONLY answer call for this branch
+            await query.answer(err, show_alert=True)
             return
 
+        # Joined successfully — answer with a toast and update the lobby message
+        slot_emoji = "⚫" if target_slot == "black" else "⚪"
+        await query.answer(f"{slot_emoji} You joined as {target_slot.title()}!", show_alert=False)
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -176,22 +179,25 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "oth_vs_ai":
         gid = await othello_game.create_ai_game(uid, name, 'b')
-        await query.answer("🤖 Created match against Othello Bot!", show_alert=True)
+        await query.answer("🤖 Starting match against Othello Bot!", show_alert=True)
         await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
 
     elif data == "oth_quick":
         gid, opp = await othello_game.join_quick_match(uid, name, chat_id)
         if gid:
-            await query.answer("⚡ Match Found!", show_alert=True)
+            await query.answer("⚡ Match Found! Starting game...", show_alert=True)
             await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
             if opp and opp.get('chat_id') and opp['chat_id'] != chat_id:
-                # Opponent is in a different chat — we don't know their chat_type, use 'private' as safe fallback
                 await send_match_started_card(context.bot, opp['chat_id'], gid, 'private')
         else:
-            await query.answer("⚡ Searching for an opponent... You'll be notified when matched!", show_alert=True)
+            await query.answer("⚡ Added to queue! You'll be notified when matched.", show_alert=True)
 
     elif data == "oth_leave":
         ok, err = othello_game.lobby_remove(chat_id, uid)
+        if not ok:
+            await query.answer(err or "You are not in this lobby.", show_alert=True)
+            return
+        await query.answer("🚪 Left the lobby.")
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -202,6 +208,7 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     elif data == "oth_close":
+        await query.answer("🚪 Lobby closed.")
         if chat_id in othello_game.lobbies:
             del othello_game.lobbies[chat_id]
         cancel_lobby_timeout(chat_id)
@@ -210,6 +217,10 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("🚪 **Lobby closed.** Use /tello to open a new match arena.", parse_mode="Markdown")
         except Exception:
             pass
+
+    else:
+        # Fallback: always answer any unhandled oth_ callback to avoid Telegram timeout
+        await query.answer()
 
 
 async def send_match_started_card(bot, chat_id: int, gid: str, chat_type: str = "private"):

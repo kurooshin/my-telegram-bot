@@ -238,25 +238,28 @@ async def is_ai_enabled(chat_id: int) -> bool:
             )
             return bool(val) if val is not None else False
     except Exception as e:
-        logger.error("is_ai_enabled error for %s: %s", chat_id, e)
+        logger.error("is_ai_enabled error for %s: %s", chat_id, e, exc_info=True)
         return False
 
 
-async def set_ai_enabled(chat_id: int, enabled: bool, title: str | None = None) -> None:
-    """Turn AI on/off for a chat. Upserts the group if missing."""
+async def set_ai_enabled(chat_id: int, enabled: bool, title: str | None = None) -> bool:
+    """Turn AI on/off for a chat. Upserts the group if missing. Returns True on success."""
     pool = await get_pool()
     try:
         async with pool.acquire() as conn:
-            await conn.execute("""
+            result = await conn.fetchval("""
                 INSERT INTO bot_groups (group_id, title, ai_enabled, updated_at)
                 VALUES ($1, COALESCE($2, 'بدون نام'), $3, CURRENT_TIMESTAMP)
                 ON CONFLICT (group_id) DO UPDATE SET
                     ai_enabled = $3,
                     title = COALESCE($2, bot_groups.title),
                     updated_at = CURRENT_TIMESTAMP
+                RETURNING ai_enabled
             """, chat_id, title, enabled)
+            return bool(result) == enabled
     except Exception as e:
-        logger.error("set_ai_enabled error for %s: %s", chat_id, e)
+        logger.error("set_ai_enabled error for %s: %s", chat_id, e, exc_info=True)
+        return False
 
 
 async def get_all_keywords() -> list[dict]:

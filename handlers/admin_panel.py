@@ -18,8 +18,13 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     chat = update.effective_chat
 
-    # Check current AI status for this chat
-    ai_on = await database.is_ai_enabled(chat.id) if chat else False
+    # Always read fresh from DB — never use cached variables
+    try:
+        ai_on = await database.is_ai_enabled(chat.id) if chat else False
+    except Exception as e:
+        logger.error("panel_command: is_ai_enabled failed for %s: %s", chat.id, e)
+        ai_on = False
+
     ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
 
     keyboard = [
@@ -56,12 +61,22 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
     elif query.data == "btn_list_ad" and role == 'admin':
         await display_beautiful_admins(query)
     elif query.data == "btn_toggle_ai":
-        chat = update.effective_chat
-        current = await database.is_ai_enabled(chat.id)
-        new_state = not current
-        await database.set_ai_enabled(chat.id, new_state, title=chat.title)
-        status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
-        await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
+        try:
+            chat = update.effective_chat
+            current = await database.is_ai_enabled(chat.id)
+            new_state = not current
+            ok = await database.set_ai_enabled(chat.id, new_state, title=chat.title)
+
+            if not ok:
+                logger.error("AI toggle DB write returned False for chat %s", chat.id)
+                await query.edit_message_text("❌ خطا در ذخیره‌سازی وضعیت AI در دیتابیس. لاگ را بررسی کن.")
+                return
+
+            status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
+            await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
+        except Exception as e:
+            logger.error("AI toggle error for %s: %s", update.effective_chat.id, e, exc_info=True)
+            await query.edit_message_text("❌ خطای غیرمنتظره در تغییر وضعیت AI. لاگ را بررسی کن.")
     elif query.data == "btn_unmatched":
         top = await database.get_top_unmatched(limit=15)
         if not top:
