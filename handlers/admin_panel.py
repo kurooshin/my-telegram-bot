@@ -12,6 +12,29 @@ warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*
 ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME = range(5)
 
 
+async def _get_target_chat(context, chat, role):
+    """Determine the target chat_id for panel operations.
+
+    In a group → the group itself.
+    In private → context.user_data['target_group_id'] (set by group selector).
+    Returns (chat_id, title, source_description).
+    """
+    if chat.type in ("group", "supergroup"):
+        return chat.id, chat.title, "group"
+
+    target = context.user_data.get("target_group_id")
+    if target:
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT title FROM bot_groups WHERE group_id = $1", target
+            )
+            title = row["title"] if row else "Unknown"
+        return target, title, "target"
+
+    return None, None, None
+
+
 async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     role = await database.get_role(user_id)
@@ -19,14 +42,43 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     chat = update.effective_chat
+    target_id, target_title, source = await _get_target_chat(context, chat, role)
 
-    # Always read fresh from DB — never use cached variables
+    if not target_id:
+        # Private chat with no group selected → show group picker
+        pool = await database.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT group_id, title, ai_enabled FROM bot_groups ORDER BY updated_at DESC NULLS LAST"
+            )
+        if not rows:
+            await update.message.reply_text(
+                "ℹ️ هنوز هیچ گروهی در دیتابیس ثبت نشده.\n"
+                "ربات را به یک گروه اضافه کن و دوباره تلاش کن."
+            )
+            return ConversationHandler.END
+        keyboard = []
+        for r in rows:
+            gid = r["group_id"]
+            gtitle = r["title"] or str(gid)
+            status = "🟢" if r["ai_enabled"] else "🔴"
+            label = f"{status} {gtitle[:30]}"
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"btn_setgroup_{gid}")])
+        keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="btn_close")])
+        await update.message.reply_text(
+            "📋 **انتخاب گروه**\nگروه مورد نظر را انتخاب کن:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return ConversationHandler.END
+
+    # Show panel for the target (group or selected group)
     try:
-        ai_on = await database.is_ai_enabled(chat.id) if chat else False
+        ai_on = await database.is_ai_enabled(target_id)
     except Exception as e:
-        logger.error("panel_command: is_ai_enabled failed for %s: %s", chat.id, e)
+        logger.error("panel_command: is_ai_enabled failed for %s: %s", target_id, e)
         ai_on = False
 
+    header = f"🛠 **پنل مدیریت** — {_esc_md(str(target_title))}\n\n"
     ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
 
     keyboard = [
@@ -38,9 +90,12 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if role == 'admin':
         keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
         keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
+    if source != "group":
+        keyboard.append([InlineKeyboardButton("🔙 تغییر گروه", callback_data="btn_pick_group")])
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("🛠 Admin Panel\nChoose an option:", reply_markup=reply_markup)
+    await update.message.reply_text(
+        header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
 
@@ -63,6 +118,18 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     try:
+        # Helper: get the effective chat_id and title for this panel session
+        chat = update.effective_chat
+        if chat.type in ("group", "supergroup"):
+            target_chat_id = chat.id
+            target_title = chat.title
+        else:
+            target_chat_id = context.user_data.get("target_group_id")
+            target_title = context.user_data.get("target_group_title", "Unknown")
+            if not target_chat_id:
+                await query.edit_message_text("❌ لطفاً اول یک گروه را از منوی /panel انتخاب کن.")
+                return ConversationHandler.END
+
         if query.data == "btn_add_kw":
             await query.edit_message_text("📝 Send the new keyword:")
             return ADD_KEYWORD
@@ -74,25 +141,60 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         elif query.data == "btn_list_ad" and role == 'admin':
             await display_beautiful_admins(query)
         elif query.data == "btn_toggle_ai":
-            chat = update.effective_chat
-            chat_id = chat.id
-            current = await database.is_ai_enabled(chat_id)
+            current = await database.is_ai_enabled(target_chat_id)
             new_state = not current
-            logger.info("AI toggle: chat_id=%s current=%s new=%s", chat_id, current, new_state)
-            ok = await database.set_ai_enabled(chat_id, new_state, title=chat.title)
+            logger.info("AI toggle: target=%s current=%s new=%s", target_chat_id, current, new_state)
+            ok = await database.set_ai_enabled(target_chat_id, new_state, title=target_title)
             if not ok:
-                logger.error("AI toggle FAILED: chat_id=%s write returned False", chat_id)
+                logger.error("AI toggle FAILED: target=%s write returned False", target_chat_id)
                 await query.edit_message_text("❌ خطا در ذخیره‌سازی وضعیت AI در دیتابیس. لاگ را بررسی کن.")
                 return ConversationHandler.END
-            # Read back immediately to confirm persistence
-            verify = await database.is_ai_enabled(chat_id)
-            logger.info("AI toggle: chat_id=%s verify read-back=%s (expected=%s)", chat_id, verify, new_state)
+            verify = await database.is_ai_enabled(target_chat_id)
+            logger.info("AI toggle: target=%s verify=%s expected=%s", target_chat_id, verify, new_state)
             if verify != new_state:
-                logger.error("AI toggle MISMATCH: chat_id=%s wrote=%s read-back=%s", chat_id, new_state, verify)
+                logger.error("AI toggle MISMATCH: target=%s wrote=%s read-back=%s", target_chat_id, new_state, verify)
                 await query.edit_message_text("❌ خطا: وضعیت AI ذخیره شد اما تأیید نشد. دوباره تلاش کن.")
                 return ConversationHandler.END
             status = "✅ AI روشن شد" if new_state else "❌ AI خاموش شد"
             await query.edit_message_text(f"{status}\n\nاز /panel برای بازگشت به پنل استفاده کن.")
+        elif query.data == "btn_pick_group":
+            await _show_group_picker(query)
+        elif query.data == "btn_close":
+            await query.edit_message_text("✅ بسته شد.")
+        elif query.data.startswith("btn_setgroup_"):
+            gid = int(query.data.split("_", 2)[2])
+            pool = await database.get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT title FROM bot_groups WHERE group_id = $1", gid
+                )
+            if not row:
+                await query.edit_message_text("❌ گروه یافت نشد.")
+                return ConversationHandler.END
+            context.user_data["target_group_id"] = gid
+            context.user_data["target_group_title"] = row["title"]
+            # Re-show panel for this group
+            target_title = row["title"]
+            try:
+                ai_on = await database.is_ai_enabled(gid)
+            except Exception as e:
+                logger.error("panel: is_ai_enabled failed for %s: %s", gid, e)
+                ai_on = False
+            ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
+            header = f"🛠 **پنل مدیریت** — {_esc_md(str(target_title))}\n\n"
+            kb = [
+                [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
+                [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
+                [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai")],
+                [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
+            ]
+            if role == 'admin':
+                kb.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
+                kb.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
+            kb.append([InlineKeyboardButton("🔙 تغییر گروه", callback_data="btn_pick_group")])
+            await query.edit_message_text(
+                header, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+            )
         elif query.data == "btn_unmatched":
             top = await database.get_top_unmatched(limit=15)
             if not top:
@@ -120,6 +222,30 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("❌ خطا در پردازش درخواست. لاگ را بررسی کن.")
 
     return ConversationHandler.END
+
+
+async def _show_group_picker(query):
+    """Edit the current message into a group picker list."""
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT group_id, title, ai_enabled FROM bot_groups ORDER BY updated_at DESC NULLS LAST"
+        )
+    if not rows:
+        await query.edit_message_text("ℹ️ هیچ گروهی در دیتابیس ثبت نشده.")
+        return
+    keyboard = []
+    for r in rows:
+        gid = r["group_id"]
+        gtitle = r["title"] or str(gid)
+        status = "🟢" if r["ai_enabled"] else "🔴"
+        label = f"{status} {gtitle[:35]}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"btn_setgroup_{gid}")])
+    keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="btn_close")])
+    await query.edit_message_text(
+        "📋 **انتخاب گروه**\nگروه مورد نظر را انتخاب کن:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
 
 def _esc_md(text: str) -> str:
