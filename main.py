@@ -9,6 +9,7 @@ from telegram import Update
 from telegram.ext import Application
 import config
 import database
+import ai_service
 import ratelimit
 from handlers.admin_panel import panel_conversation, toggle_group_handler, debug_ai_handler
 from handlers.text_responses import keyword_handler
