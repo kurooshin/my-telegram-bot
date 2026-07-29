@@ -141,6 +141,13 @@ async def init_db() -> None:
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            )
+        ''')
+
 
 async def _migrate_bot_groups(conn):
     """Idempotent migration: sync bot_groups columns with the current schema.
@@ -418,3 +425,29 @@ async def save_chat_turn(chat_id: int, user_text: str, bot_text: str, keep_last:
             """, chat_id, json.dumps(messages))
     except Exception as e:
         logger.error("save_chat_turn error for %s: %s", chat_id, e)
+
+
+async def get_bot_persona() -> str:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM bot_settings WHERE key = 'persona'"
+            )
+            return row['value'] if row else ''
+    except Exception as e:
+        logger.error("get_bot_persona error: %s", e, exc_info=True)
+        return ''
+
+
+async def set_bot_persona(text: str) -> None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bot_settings (key, value)
+                VALUES ('persona', $1)
+                ON CONFLICT (key) DO UPDATE SET value = $1
+            """, text)
+    except Exception as e:
+        logger.error("set_bot_persona error: %s", e, exc_info=True)

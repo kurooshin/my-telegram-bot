@@ -9,7 +9,7 @@ import database
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*")
 
-ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME = range(5)
+ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME, EDIT_PERSONA = range(6)
 
 
 async def _get_target_chat(context, chat, role):
@@ -90,6 +90,7 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if role == 'admin':
         keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
         keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
+        keyboard.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
     if source != "group":
         keyboard.append([InlineKeyboardButton("🔙 تغییر گروه", callback_data="btn_pick_group")])
 
@@ -191,10 +192,25 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
             if role == 'admin':
                 kb.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
                 kb.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
+                kb.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
             kb.append([InlineKeyboardButton("🔙 تغییر گروه", callback_data="btn_pick_group")])
             await query.edit_message_text(
                 header, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
             )
+        elif query.data == "btn_edit_persona" and role == 'admin':
+            current = await database.get_bot_persona()
+            if current:
+                msg = (
+                    f"🎭 **شخصیت/معرفی فعلی بات:**\n\n{current}\n\n"
+                    "✍️ متن جدید را بفرست (یا /cancel برای انصراف):"
+                )
+            else:
+                msg = (
+                    "🎭 هنوز شخصیتی تنظیم نشده.\n\n"
+                    "✍️ متن معرفی و قوانین بات را بفرست (یا /cancel برای انصراف):"
+                )
+            await query.edit_message_text(msg, parse_mode="Markdown")
+            return EDIT_PERSONA
         elif query.data == "btn_unmatched":
             top = await database.get_top_unmatched(limit=15)
             if not top:
@@ -367,6 +383,14 @@ async def process_co_admin_name(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
+async def process_persona(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    await database.set_bot_persona(text)
+    await update.message.reply_text("✅ شخصیت/معرفی بات با موفقیت ذخیره شد.")
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ Cancelled.")
@@ -441,7 +465,8 @@ panel_conversation = ConversationHandler(
         ADD_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_response)],
         ADD_MATCH_TYPE: [CallbackQueryHandler(process_match_type, pattern="^mtype_")],
         ADD_CO_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_id)],
-        ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)]
+        ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)],
+        EDIT_PERSONA: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_persona)]
     },
     fallbacks=[CommandHandler("cancel", cancel_action)],
     per_message=False,

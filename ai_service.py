@@ -89,6 +89,7 @@ async def get_ai_reply(
     user_text: str,
     history: list[dict] | None = None,
     known_facts: list[dict] | None = None,
+    persona: str | None = None,
 ) -> str | None:
     if not config.GROQ_API_KEY:
         logger.warning("Groq: GROQ_API_KEY is empty, skipping AI reply")
@@ -103,6 +104,11 @@ async def get_ai_reply(
 
     # Build system message
     system_msg = SYSTEM_PROMPT
+    if persona:
+        system_msg += (
+            "\n\nدرباره‌ی خودت این‌طور معرفی کن و طبق این قوانین رفتار کن:\n"
+            + persona
+        )
     kb = _build_knowledge_block(known_facts)
     if kb:
         system_msg += "\n\n" + kb

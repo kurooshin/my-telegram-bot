@@ -64,15 +64,16 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("[MONITOR] AI status for chat_id=%s: enabled=%s", chat.id, ai_enabled)
 
     if ai_enabled:
-        logger.info("[MONITOR] AI path: calling Gemini for chat_id=%s", chat.id)
+        logger.info("[MONITOR] AI path: calling Groq for chat_id=%s", chat.id)
         try:
             history = await database.get_chat_history(chat.id, limit=6)
             known_facts = await database.get_all_keywords()
+            persona = await database.get_bot_persona()
             reply = await ai_service.get_ai_reply(
-                incoming_text, history=history, known_facts=known_facts
+                incoming_text, history=history, known_facts=known_facts, persona=persona
             )
             logger.info(
-                "[MONITOR] Gemini raw response for chat_id=%s: %s",
+                "[MONITOR] Groq raw response for chat_id=%s: %s",
                 chat.id, "None" if reply is None else f"'{reply[:100]}'",
             )
             if reply:
