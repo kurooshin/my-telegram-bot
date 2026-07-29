@@ -1,173 +1,167 @@
 """
-AI service — connects to Google Gemini API with built-in free-tier rate limiting.
+AI service — connects to Groq API (llama-3.3-70b-versatile) with
+in-memory rate limiting and full compatibility with existing callers.
 """
 import asyncio
 import logging
 import time
 
-import google.generativeai as genai
+from groq import Groq
+
 import config
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Rate limiter (in-memory, no DB needed)
-# Limits: 1400 requests/day, 14 requests/minute
+_client: Groq | None = None
 
-DAILY_LIMIT = 1400
-MINUTE_LIMIT = 14
+MODEL = "llama-3.3-70b-versatile"
 
-_daily_count = 0
-_daily_reset = 0.0
-_minute_timestamps: list[float] = []
+# Rate-limit guard (conservative for free tier: 28/min, 13000/day)
+RATE_LIMIT_PER_MINUTE = 28
+RATE_LIMIT_PER_DAY = 13000
+
+_call_timestamps: list[float] = []
+_day_count = 0
+_day_reset = 0.0
+
+SYSTEM_PROMPT = (
+    "تو دستیار یک گروه تلگرامی هستی. کوتاه، دوستانه و طبیعی به فارسی جواب بده. "
+    "اگر چیزی رو نمی‌دونی، صادقانه بگو نمی‌دونی به‌جای این‌که حدس بزنی."
+)
+
+MAX_KNOWLEDGE_ITEMS = 40
 
 
-def _rate_limit_ok() -> bool:
-    """Check both daily and minute rate limits. Returns True if allowed."""
-    global _daily_count, _daily_reset
+def _build_knowledge_block(known_facts: list[dict] | None) -> str:
+    if not known_facts:
+        return ""
+    lines = ["برخی کلمات کلیدی و پاسخ‌های مرتبط که باید بدانی:"]
+    for kw in known_facts[:MAX_KNOWLEDGE_ITEMS]:
+        keyword = kw.get("keyword", "")
+        response = kw.get("response", "")
+        if keyword and response:
+            lines.append(f"- {keyword}: {response}")
+    return "\n".join(lines)
 
+
+def _within_quota() -> bool:
     now = time.time()
+    global _day_count, _day_reset
 
-    # Daily reset
-    if _daily_reset == 0 or now - _daily_reset > 86400:
-        _daily_count = 0
-        _daily_reset = now
+    # Reset day counter every 24 h
+    if now - _day_reset > 86400:
+        _day_count = 0
+        _day_reset = now
 
-    if _daily_count >= DAILY_LIMIT:
-        logger.warning("Daily AI rate limit reached (%s/%s)", _daily_count, DAILY_LIMIT)
-        return False
-
-    # Minute sliding window
+    # Prune old entries (older than 60 s)
     cutoff = now - 60
-    _minute_timestamps[:] = [t for t in _minute_timestamps if t > cutoff]
-    if len(_minute_timestamps) >= MINUTE_LIMIT:
-        logger.warning("Minute AI rate limit reached (%s/%s)", len(_minute_timestamps), MINUTE_LIMIT)
+    recent = [t for t in _call_timestamps if t > cutoff]
+    _call_timestamps[:] = recent
+
+    if len(recent) >= RATE_LIMIT_PER_MINUTE:
+        logger.warning("Groq: rate limit per-minute reached (%s/min)", RATE_LIMIT_PER_MINUTE)
         return False
 
-    _daily_count += 1
-    _minute_timestamps.append(now)
+    if _day_count >= RATE_LIMIT_PER_DAY:
+        logger.warning("Groq: rate limit per-day reached (%s/day)", RATE_LIMIT_PER_DAY)
+        return False
+
     return True
 
 
-# ---------------------------------------------------------------------------
-# Gemini client setup
-
-_genai_configured = False
-
-
-def _ensure_configured():
-    global _genai_configured
-    if not _genai_configured and config.GEMINI_API_KEY:
-        genai.configure(api_key=config.GEMINI_API_KEY)
-        _genai_configured = True
-
-
-_model = None
-
-
-def _get_model():
-    global _model
-    if _model is None and config.GEMINI_API_KEY:
-        _ensure_configured()
-        _model = genai.GenerativeModel(
-            "gemini-2.0-flash",
-            system_instruction=(
-                "تو یک دستیار گروه تلگرامی هستی. "
-                "به فارسی، کوتاه و دوستانه جواب بده. "
-                "اگه چیزی رو نمی‌دونی، صادقانه بگو. "
-                "از ایموجی‌های مناسب استفاده کن."
-            ),
+def check_api_key() -> None:
+    if not config.GROQ_API_KEY:
+        logger.error(
+            "=" * 60
+            + "\nGROQ_API_KEY is not set! AI replies will silently return None.\n"
+            + "Set this environment variable to enable AI features.\n"
+            + "=" * 60
         )
-    return _model
+    else:
+        logger.info(
+            "GROQ_API_KEY is configured (%s chars) — model=%s",
+            len(config.GROQ_API_KEY),
+            MODEL,
+        )
 
-
-# ---------------------------------------------------------------------------
-# History conversion helpers
-
-def _build_contents(user_text: str, history: list[dict] | None) -> list[dict]:
-    """Convert internal history format to Gemini's content format."""
-    contents = []
-
-    if history:
-        for msg in history[-10:]:  # keep last 10 turns max
-            role = msg.get("role", "user")
-            if role not in ("user", "assistant"):
-                role = "user"
-            contents.append({
-                "role": "model" if role == "assistant" else "user",
-                "parts": [{"text": msg.get("content", "")}],
-            })
-
-    contents.append({
-        "role": "user",
-        "parts": [{"text": user_text}],
-    })
-    return contents
-
-
-# ---------------------------------------------------------------------------
-# Public API
 
 async def get_ai_reply(
     user_text: str,
     history: list[dict] | None = None,
     known_facts: list[dict] | None = None,
 ) -> str | None:
-    """
-    Send a message to Gemini and return the response text.
-    Returns None on rate-limit hit, API error, or if no API key is configured.
-    """
-    if not config.GEMINI_API_KEY:
-        logger.warning("GEMINI_API_KEY not set — AI replies disabled")
+    if not config.GROQ_API_KEY:
+        logger.warning("Groq: GROQ_API_KEY is empty, skipping AI reply")
         return None
 
-    if not _rate_limit_ok():
-        logger.warning("Rate limit hit for Gemini — returning None")
+    if not _within_quota():
         return None
 
-    model = _get_model()
-    if model is None:
-        logger.error("Gemini model could not be initialized")
-        return None
+    global _client
+    if _client is None:
+        _client = Groq(api_key=config.GROQ_API_KEY)
 
-    logger.info(
-        "Gemini API call: text_len=%d history_len=%d known_facts=%d",
-        len(user_text), len(history) if history else 0, len(known_facts) if known_facts else 0,
-    )
+    # Build system message
+    system_msg = SYSTEM_PROMPT
+    kb = _build_knowledge_block(known_facts)
+    if kb:
+        system_msg += "\n\n" + kb
 
-    # Build context string from known facts
-    context = ""
-    if known_facts:
-        lines = []
-        for kw in known_facts:
-            keyword = kw.get("keyword", "")
-            response = kw.get("response", "")
-            lines.append(f"- {keyword}: {response}")
-        context = "دستورالعمل: کلمات کلیدی و پاسخ‌های زیر را بدان:\n" + "\n".join(lines)
+    messages: list[dict] = [{"role": "system", "content": system_msg}]
+
+    # Append conversation history (already in OpenAI-compatible format)
+    for msg in (history or []):
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            continue
+        if role == "assistant":
+            role = "assistant"
+        else:
+            role = "user"
+        messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": user_text})
 
     try:
-        contents = _build_contents(user_text, history)
-        if context:
-            contents.insert(0, {
-                "role": "user",
-                "parts": [{"text": context}],
-            })
-            contents.insert(1, {
-                "role": "model",
-                "parts": [{"text": "متوجه شدم. این کلمات کلیدی رو در پاسخ‌هات در نظر می‌گیرم."}],
-            })
-
-        # Run Gemini call in a thread pool to avoid blocking the event loop
         loop = asyncio.get_running_loop()
-        logger.debug("Gemini: sending request...")
+        logger.debug("Groq: sending request (%d messages)", len(messages))
+
         response = await loop.run_in_executor(
             None,
-            lambda: model.generate_content(contents),
+            lambda: _client.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7,
+            ),
         )
-        result = response.text.strip() if response and response.text else None
-        logger.info("Gemini: response received — has_text=%s len=%s", result is not None, len(result) if result else 0)
+
+        if not response or not response.choices:
+            logger.warning("Groq: empty response or no choices")
+            return None
+
+        choice = response.choices[0]
+        text = choice.message.content if choice.message else None
+        if not text:
+            finish_reason = getattr(choice, "finish_reason", "UNKNOWN")
+            logger.warning("Groq: finish_reason=%s, content is empty", finish_reason)
+            return None
+
+        result = text.strip()
+        logger.info(
+            "Groq: response received — len=%s finish=%s",
+            len(result),
+            choice.finish_reason,
+        )
+
+        # Track rate limit
+        _call_timestamps.append(time.time())
+        global _day_count
+        _day_count += 1
+
         return result
 
     except Exception as e:
-        logger.error("Gemini API error: %s", e, exc_info=True)
+        logger.error("Groq API error: %s", e, exc_info=True)
         return None

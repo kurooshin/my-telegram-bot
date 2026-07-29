@@ -179,6 +179,8 @@ async def main():
     except Exception as e:
         logger.error("Database init failed (non-fatal, trying to continue): %s", e, exc_info=True)
 
+    ai_service.check_api_key()
+
     await othello_game.restore_games()
     await othello_game.restore_lobbies()
     logger.info(f"Restored {len(othello_game.games)} Othello games and {len(othello_game.lobbies)} lobbies from DB")
