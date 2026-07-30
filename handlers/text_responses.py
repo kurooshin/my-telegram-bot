@@ -149,13 +149,9 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error("[MONITOR] AI reply exception for chat_id=%s: %s", chat.id, e, exc_info=True)
 
-        # AI returned None (rate limit / error) → fallback to keywords
-        kw_matched = await _keyword_fallback(update, incoming_text)
-        logger.info("[MONITOR] AI fallback keyword match for chat_id=%s: matched=%s", chat.id, kw_matched)
-        if kw_matched:
-            return
+        # AI enabled but no reply (rate limit / error) — no keyword fallback
         await database.log_unmatched(incoming_text, chat.id)
-        logger.info("[MONITOR] Unmatched (AI path) — chat_id=%s text='%s'", chat.id, incoming_text[:60])
+        logger.info("[MONITOR] AI enabled but no reply (no keyword fallback) — chat_id=%s text='%s'", chat.id, incoming_text[:60])
         return
 
     # Step 2: AI disabled — keyword matching only
