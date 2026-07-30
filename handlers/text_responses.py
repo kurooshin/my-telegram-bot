@@ -32,12 +32,77 @@ async def _keyword_fallback(update: Update, incoming_text: str) -> bool:
     return False
 
 
+async def _is_bot_mentioned(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Check if the message @mentions the bot or replies to a bot message."""
+    msg = update.message
+    if not msg:
+        return False
+
+    # Condition 3: reply to the bot's own message
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        if msg.reply_to_message.from_user.id == context.bot.id:
+            return True
+
+    if not msg.text:
+        return False
+
+    raw = msg.text.strip()
+
+    # Condition 1: @bot_username in message
+    bot_username = (context.bot.username or '').lower()
+    if bot_username and f'@{bot_username}' in raw.lower():
+        return True
+
+    # Condition 2: custom trigger word
+    try:
+        trigger = database.normalize_persian(await database.get_trigger_word()).strip()
+        if trigger and trigger in database.normalize_persian(raw):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _strip_trigger(raw: str, trigger: str, bot_username: str) -> str:
+    """Remove the trigger word/mention from the beginning of a message."""
+    text = raw.strip()
+    # Remove @bot_username (case-insensitive)
+    if bot_username:
+        mention = f'@{bot_username}'
+        idx = text.lower().find(mention)
+        if idx != -1:
+            text = text[:idx] + text[idx + len(mention):]
+    # Remove trigger word from start
+    if trigger:
+        normalized = database.normalize_persian(text)
+        if normalized.startswith(database.normalize_persian(trigger)):
+            text = text[len(trigger):]
+    return text.strip()
+
+
 async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
     chat = update.effective_chat
-    incoming_text = database.normalize_persian(update.message.text.strip())
+    raw_text = update.message.text.strip()
+    incoming_text = database.normalize_persian(raw_text)
+
+    if chat.type in ("group", "supergroup"):
+        if not await _is_bot_mentioned(update, context):
+            return  # silent ignore — bot was not addressed
+
+        # Strip trigger before further processing
+        try:
+            trigger = database.normalize_persian(await database.get_trigger_word()).strip()
+        except Exception:
+            trigger = 'بات'
+        bot_username = context.bot.username or ''
+        stripped = _strip_trigger(raw_text, trigger, bot_username)
+        if stripped:
+            incoming_text = database.normalize_persian(stripped)
+
     logger.info(
         "[MONITOR] Text received: chat_id=%s chat_type=%s text='%s' user_id=%s",
         chat.id, chat.type, incoming_text[:80], update.effective_user.id,

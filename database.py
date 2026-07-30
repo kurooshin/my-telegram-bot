@@ -451,3 +451,29 @@ async def set_bot_persona(text: str) -> None:
             """, text)
     except Exception as e:
         logger.error("set_bot_persona error: %s", e, exc_info=True)
+
+
+async def get_trigger_word() -> str:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM bot_settings WHERE key = 'trigger_word'"
+            )
+            return row['value'] if row else 'بات'
+    except Exception as e:
+        logger.error("get_trigger_word error: %s", e, exc_info=True)
+        return 'بات'
+
+
+async def set_trigger_word(word: str) -> None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO bot_settings (key, value)
+                VALUES ('trigger_word', $1)
+                ON CONFLICT (key) DO UPDATE SET value = $1
+            """, word)
+    except Exception as e:
+        logger.error("set_trigger_word error: %s", e, exc_info=True)
