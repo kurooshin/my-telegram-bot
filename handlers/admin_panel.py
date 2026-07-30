@@ -93,17 +93,7 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     try:
-        # Helper: get the effective chat_id and title for this panel session
         chat = update.effective_chat
-        if chat.type in ("group", "supergroup"):
-            target_chat_id = chat.id
-            target_title = chat.title
-        else:
-            target_chat_id = context.user_data.get("target_group_id")
-            target_title = context.user_data.get("target_group_title", "Unknown")
-            if not target_chat_id:
-                await query.edit_message_text("❌ لطفاً اول یک گروه را از منوی /panel انتخاب کن.")
-                return ConversationHandler.END
 
         if query.data == "btn_add_kw":
             await query.edit_message_text("📝 Send the new keyword:")
@@ -116,6 +106,15 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
         elif query.data == "btn_list_ad" and role == 'admin':
             await display_beautiful_admins(query)
         elif query.data == "btn_toggle_ai":
+            if chat.type in ("group", "supergroup"):
+                target_chat_id = chat.id
+                target_title = chat.title
+            else:
+                target_chat_id = context.user_data.get("selected_group_id")
+                target_title = context.user_data.get("selected_group_title", "Unknown")
+                if not target_chat_id:
+                    await query.edit_message_text("❌ لطفاً اول یک گروه را از «مدیریت گروه‌ها» انتخاب کن.")
+                    return ConversationHandler.END
             current = await database.is_ai_enabled(target_chat_id)
             new_state = not current
             logger.info("AI toggle: target=%s current=%s new=%s", target_chat_id, current, new_state)
