@@ -204,12 +204,19 @@ async def main():
     application.add_handler(othello_callback_handler)
     application.add_handler(start_handler)
     application.add_handler(leaderboard_handler)
-    application.add_handler(smart_reply_learning)
     application.add_handler(suggest_handler)
     application.add_handler(suggestion_callback_handler)
     application.add_handler(forget_me_handler)
     application.add_handler(privacy_handler)
-    application.add_handler(keyword_handler)
+
+    # smart_reply_learning (message tracking for style-learning) and keyword_handler
+    # (keyword replies / AI group chat) both match filters.TEXT & ~filters.COMMAND.
+    # PTB only runs the FIRST matching handler within a given group, so they are
+    # registered in separate groups here on purpose — both must run independently
+    # on every group text message, since one only logs/counts and the other decides
+    # whether to send a reply. Do not merge them back into the same group.
+    application.add_handler(smart_reply_learning, group=1)
+    application.add_handler(keyword_handler, group=0)
 
     await application.initialize()
     await application.start()
@@ -267,4 +274,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
-
