@@ -148,6 +148,25 @@ async def init_db() -> None:
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_messages (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_styles (
+                user_id BIGINT PRIMARY KEY,
+                style_summary TEXT,
+                msg_count INT DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
 
 async def _migrate_bot_groups(conn):
     """Idempotent migration: sync bot_groups columns with the current schema.
@@ -477,3 +496,85 @@ async def set_trigger_word(word: str) -> None:
             """, word)
     except Exception as e:
         logger.error("set_trigger_word error: %s", e, exc_info=True)
+
+
+async def save_message(user_id: int, chat_id: int, text: str) -> None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                'INSERT INTO user_messages (user_id, chat_id, text) VALUES ($1, $2, $3)',
+                user_id, chat_id, text,
+            )
+    except Exception as e:
+        logger.error("save_message error: %s", e, exc_info=True)
+
+
+async def get_recent_messages(user_id: int, limit: int = 30) -> list[dict]:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                'SELECT text, chat_id, created_at FROM user_messages '
+                'WHERE user_id = $1 ORDER BY id DESC LIMIT $2',
+                user_id, limit,
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error("get_recent_messages error for %s: %s", user_id, e, exc_info=True)
+        return []
+
+
+async def get_style(user_id: int) -> str | None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT style_summary FROM user_styles WHERE user_id = $1', user_id
+            )
+            return row['style_summary'] if row else None
+    except Exception as e:
+        logger.error("get_style error for %s: %s", user_id, e, exc_info=True)
+        return None
+
+
+async def save_style(user_id: int, style_summary: str) -> None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO user_styles (user_id, style_summary, msg_count, updated_at)
+                VALUES ($1, $2, 0, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    style_summary = $2,
+                    msg_count = 0,
+                    updated_at = CURRENT_TIMESTAMP
+            """, user_id, style_summary)
+    except Exception as e:
+        logger.error("save_style error for %s: %s", user_id, e, exc_info=True)
+
+
+async def trim_user_messages(user_id: int, keep: int = 40) -> None:
+    """Keep only the last `keep` raw messages per user (rolling window)."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                DELETE FROM user_messages
+                WHERE user_id = $1 AND id NOT IN (
+                    SELECT id FROM user_messages
+                    WHERE user_id = $1 ORDER BY id DESC LIMIT $2
+                )
+            """, user_id, keep)
+    except Exception as e:
+        logger.error("trim_user_messages error for %s: %s", user_id, e, exc_info=True)
+
+
+async def delete_user_data(user_id: int) -> None:
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute('DELETE FROM user_messages WHERE user_id = $1', user_id)
+            await conn.execute('DELETE FROM user_styles WHERE user_id = $1', user_id)
+    except Exception as e:
+        logger.error("delete_user_data error for %s: %s", user_id, e, exc_info=True)

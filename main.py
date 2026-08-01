@@ -14,6 +14,13 @@ import ratelimit
 from handlers.admin_panel import panel_conversation, toggle_group_handler, debug_ai_handler
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
+from handlers.smart_reply import (
+    smart_reply_learning,
+    suggest_handler,
+    suggestion_callback_handler,
+    forget_me_handler,
+    privacy_handler,
+)
 from handlers.game import game_handler, tello_handler, othello_callback_handler, leaderboard_handler, start_handler
 import othello_game
 
@@ -197,6 +204,11 @@ async def main():
     application.add_handler(othello_callback_handler)
     application.add_handler(start_handler)
     application.add_handler(leaderboard_handler)
+    application.add_handler(smart_reply_learning)
+    application.add_handler(suggest_handler)
+    application.add_handler(suggestion_callback_handler)
+    application.add_handler(forget_me_handler)
+    application.add_handler(privacy_handler)
     application.add_handler(keyword_handler)
 
     await application.initialize()
@@ -214,6 +226,9 @@ async def main():
         ("tello", "Join Othello lobby"),
         ("leaderboard", "Snake leaderboard"),
         ("panel", "Admin panel"),
+        ("suggest", "پیشنهاد پاسخ هوشمند به سبک تو"),
+        ("forget_me", "حذف کامل داده‌های ذخیره‌شده"),
+        ("privacy", "توضیح حریم خصوصی"),
     ]
     await application.bot.set_my_commands(commands)
     logger.info("Bot commands registered")
