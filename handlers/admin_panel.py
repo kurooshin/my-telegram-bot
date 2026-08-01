@@ -591,6 +591,19 @@ async def debug_ai_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def conversation_timeout_handler(update, context):
+    """اگه یه فلوی پنل (مثل Add Keyword) رها بشه، بعد از timeout به حالت عادی برمی‌گرده."""
+    context.user_data.clear()
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⏰ زمان انتظار پنل تموم شد و به حالت عادی برگشتی. برای شروع دوباره /panel رو بزن."
+            )
+        except Exception:
+            pass
+    return ConversationHandler.END
+
+
 toggle_group_handler = CommandHandler("toggle_group", toggle_group_command)
 debug_ai_handler = CommandHandler("debug_ai", debug_ai_command)
 

@@ -1,5 +1,5 @@
 """
-AI service — connects to Groq API (qwen/qwen3-32b) with
+AI service — connects to Groq API (openai/gpt-oss-120b) with
 in-memory rate limiting and full compatibility with existing callers.
 """
 import asyncio
@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 _client: Groq | None = None
 
-MODEL = "qwen/qwen3-32b"
+MODEL = "openai/gpt-oss-120b"
 
-# Rate-limit guard (free-tier Qwen3 32B: ~1000/day, ~28/min)
+# Rate-limit guard (free-tier gpt-oss-120b: ~1000/day, ~30/min)
 RATE_LIMIT_PER_MINUTE = 28
 RATE_LIMIT_PER_DAY = 900
 
