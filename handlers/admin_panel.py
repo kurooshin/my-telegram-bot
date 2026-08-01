@@ -507,6 +507,23 @@ async def cancel_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def conversation_timeout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fires when a panel flow (Add Keyword, Edit Persona, etc.) is abandoned for
+    too long. Without this, a half-finished flow would silently swallow every
+    future message from that admin in that chat forever — this is what makes
+    keyword/AI replies 'stop working' after clicking a panel button and not
+    finishing it."""
+    context.user_data.clear()
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⏰ زمان انتظار پنل تموم شد و به حالت عادی برگشتی. برای شروع دوباره /panel رو بزن."
+            )
+        except Exception:
+            pass
+    return ConversationHandler.END
+
+
 async def _toggle_group_active(gid: int, query=None, update=None):
     """Toggle is_active for a group. Works with either callback query or update."""
     pool = await database.get_pool()
@@ -589,10 +606,11 @@ panel_conversation = ConversationHandler(
         ADD_CO_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_id)],
         ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)],
         EDIT_PERSONA: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_persona)],
-        SET_TRIGGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_trigger)]
+        SET_TRIGGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_trigger)],
+        ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, conversation_timeout_handler)],
     },
     fallbacks=[CommandHandler("cancel", cancel_action)],
     per_message=False,
-    allow_reentry=True
+    allow_reentry=True,
+    conversation_timeout=300,
 )
-
