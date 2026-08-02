@@ -149,21 +149,12 @@ async def init_db() -> None:
         ''')
 
         await conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_messages (
-                id SERIAL PRIMARY KEY,
-                user_id BIGINT NOT NULL,
+            CREATE TABLE IF NOT EXISTS user_style_samples (
                 chat_id BIGINT NOT NULL,
-                text TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_styles (
-                user_id BIGINT PRIMARY KEY,
-                style_summary TEXT,
-                msg_count INT DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                user_id BIGINT NOT NULL,
+                messages JSONB NOT NULL DEFAULT '[]',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chat_id, user_id)
             )
         ''')
 
@@ -472,6 +463,55 @@ async def set_bot_persona(text: str) -> None:
         logger.error("set_bot_persona error: %s", e, exc_info=True)
 
 
+MAX_STYLE_SAMPLES = 15
+
+
+async def save_user_style_sample(chat_id: int, user_id: int, text: str) -> None:
+    """Append one message to a user's rolling style buffer (per chat), capped
+    at MAX_STYLE_SAMPLES. Used to learn how each person writes so replies can
+    be adapted to their tone/vocabulary. Silently no-ops on very short/blank text."""
+    text = (text or "").strip()
+    if not text or len(text) < 2:
+        return
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            existing = await conn.fetchval(
+                'SELECT messages FROM user_style_samples WHERE chat_id = $1 AND user_id = $2',
+                chat_id, user_id
+            )
+            samples = json.loads(existing) if isinstance(existing, str) else (list(existing) if existing else [])
+            samples.append(text)
+            samples = samples[-MAX_STYLE_SAMPLES:]
+            await conn.execute("""
+                INSERT INTO user_style_samples (chat_id, user_id, messages, updated_at)
+                VALUES ($1, $2, $3::jsonb, CURRENT_TIMESTAMP)
+                ON CONFLICT (chat_id, user_id) DO UPDATE SET
+                    messages = $3::jsonb,
+                    updated_at = CURRENT_TIMESTAMP
+            """, chat_id, user_id, json.dumps(samples))
+    except Exception as e:
+        logger.error("save_user_style_sample error for chat=%s user=%s: %s", chat_id, user_id, e)
+
+
+async def get_user_style_samples(chat_id: int, user_id: int, limit: int = 8) -> list[str]:
+    """Return the most recent messages a user sent in this chat, for style reference."""
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchval(
+                'SELECT messages FROM user_style_samples WHERE chat_id = $1 AND user_id = $2',
+                chat_id, user_id
+            )
+            if not row:
+                return []
+            samples = json.loads(row) if isinstance(row, str) else row
+            return list(samples)[-limit:]
+    except Exception as e:
+        logger.error("get_user_style_samples error for chat=%s user=%s: %s", chat_id, user_id, e)
+        return []
+
+
 async def get_trigger_word() -> str:
     pool = await get_pool()
     try:
@@ -496,85 +536,3 @@ async def set_trigger_word(word: str) -> None:
             """, word)
     except Exception as e:
         logger.error("set_trigger_word error: %s", e, exc_info=True)
-
-
-async def save_message(user_id: int, chat_id: int, text: str) -> None:
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                'INSERT INTO user_messages (user_id, chat_id, text) VALUES ($1, $2, $3)',
-                user_id, chat_id, text,
-            )
-    except Exception as e:
-        logger.error("save_message error: %s", e, exc_info=True)
-
-
-async def get_recent_messages(user_id: int, limit: int = 30) -> list[dict]:
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                'SELECT text, chat_id, created_at FROM user_messages '
-                'WHERE user_id = $1 ORDER BY id DESC LIMIT $2',
-                user_id, limit,
-            )
-            return [dict(r) for r in rows]
-    except Exception as e:
-        logger.error("get_recent_messages error for %s: %s", user_id, e, exc_info=True)
-        return []
-
-
-async def get_style(user_id: int) -> str | None:
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                'SELECT style_summary FROM user_styles WHERE user_id = $1', user_id
-            )
-            return row['style_summary'] if row else None
-    except Exception as e:
-        logger.error("get_style error for %s: %s", user_id, e, exc_info=True)
-        return None
-
-
-async def save_style(user_id: int, style_summary: str) -> None:
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                INSERT INTO user_styles (user_id, style_summary, msg_count, updated_at)
-                VALUES ($1, $2, 0, CURRENT_TIMESTAMP)
-                ON CONFLICT (user_id) DO UPDATE SET
-                    style_summary = $2,
-                    msg_count = 0,
-                    updated_at = CURRENT_TIMESTAMP
-            """, user_id, style_summary)
-    except Exception as e:
-        logger.error("save_style error for %s: %s", user_id, e, exc_info=True)
-
-
-async def trim_user_messages(user_id: int, keep: int = 40) -> None:
-    """Keep only the last `keep` raw messages per user (rolling window)."""
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute("""
-                DELETE FROM user_messages
-                WHERE user_id = $1 AND id NOT IN (
-                    SELECT id FROM user_messages
-                    WHERE user_id = $1 ORDER BY id DESC LIMIT $2
-                )
-            """, user_id, keep)
-    except Exception as e:
-        logger.error("trim_user_messages error for %s: %s", user_id, e, exc_info=True)
-
-
-async def delete_user_data(user_id: int) -> None:
-    pool = await get_pool()
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute('DELETE FROM user_messages WHERE user_id = $1', user_id)
-            await conn.execute('DELETE FROM user_styles WHERE user_id = $1', user_id)
-    except Exception as e:
-        logger.error("delete_user_data error for %s: %s", user_id, e, exc_info=True)
