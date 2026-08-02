@@ -37,6 +37,7 @@ SYSTEM_PROMPT = (
     "۵. لحنت دوستانه و صمیمیه، نه رسمی و اداری.\n"
     "۶. توی خروجی هیچ تگ فکرکردن یا تحلیل داخلی (مثل <think>) رو نشون نده، "
     "فقط جواب نهایی رو بنویس."
+    "وقتی پرسیده میشه صاحبت کیه پدرت کیه یا سازنده تو باید بگی علی اصغر یا ایدی طرف @kurooshin را بفرستی و مادر هم باید بگی نرگس.\n"
 )
 
 MAX_KNOWLEDGE_ITEMS = 40
@@ -52,6 +53,21 @@ def _build_knowledge_block(known_facts: list[dict] | None) -> str:
         if keyword and response:
             lines.append(f"- {keyword}: {response}")
     return "\n".join(lines)
+
+
+def _build_style_block(user_style: list[str] | None) -> str:
+    if not user_style:
+        return ""
+    samples = "\n".join(f"- {s}" for s in user_style)
+    return (
+        "این کاربری که الان داری بهش جواب می‌دی، معمولاً این‌جوری توی گروه "
+        "می‌نویسه (این‌ها فقط نمونه‌ی سبک نوشتاریشه، نه چیزی که الان گفته):\n"
+        f"{samples}\n\n"
+        "لحن، بلندی جمله‌ها، استفاده از ایموجی، و سطح رسمی/غیررسمی بودن جوابت رو "
+        "با همین سبک هماهنگ کن — انگار داری با همون آدم و توی همون فاز حرف می‌زنی. "
+        "ولی هیچوقت الفاظ رکیک، توهین‌آمیز یا نامناسب رو تقلید نکن، حتی اگه خودش "
+        "استفاده کرده باشه — فقط لحن و اسلوب نوشتاری رو یاد بگیر، نه محتوای نامناسب."
+    )
 
 
 def _within_quota() -> bool:
@@ -98,6 +114,7 @@ async def get_ai_reply(
     history: list[dict] | None = None,
     known_facts: list[dict] | None = None,
     persona: str | None = None,
+    user_style: list[str] | None = None,
 ) -> str | None:
     if not config.GROQ_API_KEY:
         logger.warning("Groq: GROQ_API_KEY is empty, skipping AI reply")
@@ -120,6 +137,9 @@ async def get_ai_reply(
     kb = _build_knowledge_block(known_facts)
     if kb:
         system_msg += "\n\n" + kb
+    style_block = _build_style_block(user_style)
+    if style_block:
+        system_msg += "\n\n" + style_block
 
     messages: list[dict] = [{"role": "system", "content": system_msg}]
 
