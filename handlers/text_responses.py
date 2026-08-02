@@ -90,6 +90,14 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
     incoming_text = database.normalize_persian(raw_text)
 
     if chat.type in ("group", "supergroup"):
+        # Learn this user's writing style from every message they send in the
+        # group, regardless of whether the bot was addressed — this builds up
+        # a per-user style sample that AI replies can later mimic.
+        try:
+            await database.save_user_style_sample(chat.id, update.effective_user.id, raw_text)
+        except Exception as e:
+            logger.warning("save_user_style_sample failed for %s/%s: %s", chat.id, update.effective_user.id, e)
+
         if not await _is_bot_mentioned(update, context):
             return  # silent ignore — bot was not addressed
 
@@ -134,8 +142,15 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             history = await database.get_chat_history(chat.id, limit=6)
             known_facts = await database.get_all_keywords()
             persona = await database.get_bot_persona()
+            user_style = []
+            if chat.type in ("group", "supergroup"):
+                try:
+                    user_style = await database.get_user_style_samples(chat.id, update.effective_user.id, limit=8)
+                except Exception as e:
+                    logger.warning("get_user_style_samples failed for %s/%s: %s", chat.id, update.effective_user.id, e)
             reply = await ai_service.get_ai_reply(
-                incoming_text, history=history, known_facts=known_facts, persona=persona
+                incoming_text, history=history, known_facts=known_facts,
+                persona=persona, user_style=user_style,
             )
             logger.info(
                 "[MONITOR] Groq raw response for chat_id=%s: %s",
