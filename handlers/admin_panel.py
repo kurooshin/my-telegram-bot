@@ -64,6 +64,7 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    logger.info("[PANEL] button '%s' pressed by user %s", query.data, update.effective_user.id)
 
     # دکمه‌ی AI وقتی خاموشه فقط یه هشدار نشون میده (باید قبل از answer() عمومی بیاد)
     if query.data == "menu_ai_off":
