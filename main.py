@@ -28,6 +28,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+# جلوگیری از چاپ توکن بات توی لاگ‌های httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def error_handler(update: Update, context):
@@ -232,6 +234,7 @@ async def main():
         ("game", "Game Hub — Snake & Othello"),
         ("tello", "Join Othello lobby"),
         ("leaderboard", "Snake leaderboard"),
+        ("menu", "منوی مدیریت"),
         ("panel", "Admin panel"),
         ("suggest", "پیشنهاد پاسخ هوشمند به سبک تو"),
         ("forget_me", "حذف کامل داده‌های ذخیره‌شده"),
