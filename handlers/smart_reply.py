@@ -11,6 +11,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
+import config
 import database
 import ai_engine
 
@@ -30,6 +31,8 @@ MAX_BUTTON_TEXT = 64
 
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """هر پیام متنی گروه رو ذخیره می‌کنه و گاهی اوقات سبک کاربر رو به‌روزرسانی می‌کنه."""
+    if not config.AI_ENABLED:
+        return  # قابلیت سبک/AI فعلاً خاموشه — هیچ پیامی ذخیره نمی‌شه
     if update.effective_chat.type not in ("group", "supergroup"):
         return
     msg = update.message
@@ -65,6 +68,10 @@ async def _update_style_async(user_id: int):
 
 
 async def suggest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not config.AI_ENABLED:
+        await update.message.reply_text("🔴 قابلیت پیشنهاد هوشمند فعلاً خاموشه.")
+        return
+
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
 
