@@ -3,6 +3,7 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, MessageHandler, filters
+import config
 import database
 import ai_service
 
@@ -93,10 +94,11 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Learn this user's writing style from every message they send in the
         # group, regardless of whether the bot was addressed — this builds up
         # a per-user style sample that AI replies can later mimic.
-        try:
-            await database.save_user_style_sample(chat.id, update.effective_user.id, raw_text)
-        except Exception as e:
-            logger.warning("save_user_style_sample failed for %s/%s: %s", chat.id, update.effective_user.id, e)
+        if config.AI_ENABLED:
+            try:
+                await database.save_user_style_sample(chat.id, update.effective_user.id, raw_text)
+            except Exception as e:
+                logger.warning("save_user_style_sample failed for %s/%s: %s", chat.id, update.effective_user.id, e)
 
         if not await _is_bot_mentioned(update, context):
             return  # silent ignore — bot was not addressed
@@ -133,7 +135,7 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.warning("Group tracking failed for %s: %s", chat.id, e)
 
     # Step 1: Check AI status
-    ai_enabled = await database.is_ai_enabled(chat.id)
+    ai_enabled = config.AI_ENABLED and await database.is_ai_enabled(chat.id)
     logger.info("[MONITOR] AI status for chat_id=%s: enabled=%s", chat.id, ai_enabled)
 
     if ai_enabled:
