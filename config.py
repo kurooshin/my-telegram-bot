@@ -6,6 +6,10 @@ DB_URI = os.environ.get("DATABASE_URL", "postgresql://user:pass@localhost:5432/d
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
+# کلید اصلی قابلیت‌های هوش مصنوعی (پاسخ AI + یادگیری سبک نوشتاری + /suggest).
+# پیش‌فرض خاموشه. برای روشن کردن توی Render متغیر AI_ENABLED=1 بذار.
+AI_ENABLED = os.environ.get("AI_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
+
 _admin_id_raw = os.environ.get("ADMIN_ID", "0")
 try:
     ADMIN_ID = int(_admin_id_raw)
@@ -25,4 +29,3 @@ def check_config():
         missing.append("ADMIN_ID")
     if missing:
         raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-
