@@ -100,18 +100,22 @@ async def monitor_keywords(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logger.warning("save_user_style_sample failed for %s/%s: %s", chat.id, update.effective_user.id, e)
 
-        if not await _is_bot_mentioned(update, context):
+        mentioned = await _is_bot_mentioned(update, context)
+        # حالت AI یا KEYWORDS_NEED_MENTION=1: فقط وقتی بات صدا زده شده جواب بده.
+        # در حالت عادی (فقط کلمات کلیدی) روی همه‌ی پیام‌های گروه کار می‌کنه.
+        if (config.AI_ENABLED or config.KEYWORDS_NEED_MENTION) and not mentioned:
             return  # silent ignore — bot was not addressed
 
-        # Strip trigger before further processing
-        try:
-            trigger = database.normalize_persian(await database.get_trigger_word()).strip()
-        except Exception:
-            trigger = 'بات'
-        bot_username = context.bot.username or ''
-        stripped = _strip_trigger(raw_text, trigger, bot_username)
-        if stripped:
-            incoming_text = database.normalize_persian(stripped)
+        if mentioned:
+            # Strip trigger before further processing
+            try:
+                trigger = database.normalize_persian(await database.get_trigger_word()).strip()
+            except Exception:
+                trigger = 'بات'
+            bot_username = context.bot.username or ''
+            stripped = _strip_trigger(raw_text, trigger, bot_username)
+            if stripped:
+                incoming_text = database.normalize_persian(stripped)
 
     logger.info(
         "[MONITOR] Text received: chat_id=%s chat_type=%s text='%s' user_id=%s",
