@@ -10,6 +10,10 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 # پیش‌فرض خاموشه. برای روشن کردن توی Render متغیر AI_ENABLED=1 بذار.
 AI_ENABLED = os.environ.get("AI_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
 
+# اگه 1 باشه، توی گروه کلمات کلیدی فقط وقتی جواب میدن که بات صدا زده بشه
+# (کلمه صدا زدن، @username یا ریپلای). پیش‌فرض 0: کلمات کلیدی روی همه‌ی پیام‌های گروه کار می‌کنن.
+KEYWORDS_NEED_MENTION = os.environ.get("KEYWORDS_NEED_MENTION", "0").strip().lower() in ("1", "true", "yes", "on")
+
 _admin_id_raw = os.environ.get("ADMIN_ID", "0")
 try:
     ADMIN_ID = int(_admin_id_raw)
