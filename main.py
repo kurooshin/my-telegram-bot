@@ -246,7 +246,8 @@ async def main():
     port_number = int(os.environ.get("PORT", 8080))
     webhook_path = "/webhook"
     webhook_url = f"{config.WEBHOOK_URL}{webhook_path}"
-    await application.bot.set_webhook(url=webhook_url)
+    # allowed_updates رو صریح میدیم تا دکمه‌های شیشه‌ای (callback_query) حتماً به بات برسن
+    await application.bot.set_webhook(url=webhook_url, allowed_updates=Update.ALL_TYPES)
 
     tornado_app = tornado.web.Application([
         (webhook_path, BotWebhookHandler, dict(bot_app=application)),
