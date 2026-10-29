@@ -34,6 +34,9 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 .lb-rank.bronze{color:#cd7f32}
 .lb-name{flex:1;padding:0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lb-score{font-weight:700;color:#e94560}
+.lb-row.me{background:rgba(233,69,96,.15);border-radius:6px}
+.lb-me{margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.12);text-align:center;font-size:.75rem;color:#ccc}
+.lb-note{text-align:center;color:#888;font-size:.7rem;margin-top:6px}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.9);color:#fff;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
 @media(max-width:420px){.header h1{font-size:1rem}.stats{font-size:.75rem;gap:10px;padding:3px 10px}.overlay h2{font-size:1.3rem}}
@@ -93,10 +96,11 @@ const toast=document.getElementById('toast');
 let tg=null;
 try{if(window.Telegram&&window.Telegram.WebApp){tg=window.Telegram.WebApp;tg.expand()}}catch(e){}
 
-let storedId=localStorage.getItem('snakeUserId');
-let userId=tg?.initDataUnsafe?.user?.id?.toString()||storedId||('anon_'+Date.now()+Math.random().toString(36).slice(2,6));
-let userName=tg?.initDataUnsafe?.user?.first_name||localStorage.getItem('snakeUserName')||'Player';
-localStorage.setItem('snakeUserId',userId);localStorage.setItem('snakeUserName',userName);
+// Identity comes ONLY from Telegram's signed initData (verified on the server).
+// Outside Telegram initData is empty, so scores are not saved.
+const initData=tg?.initData||'';
+const myId=tg?.initDataUnsafe?.user?.id?String(tg.initDataUnsafe.user.id):null;
+const authHeaders={'Content-Type':'application/json','X-Telegram-Init-Data':initData};
 
 const GRID=20;
 let cellSize,offsetX,offsetY;
@@ -268,22 +272,42 @@ function startGame(){
 function showToast(msg){toast.textContent=msg;toast.classList.add('show');setTimeout(()=>toast.classList.remove('show'),2000)}
 
 async function submitScore(s){
+  if(s<=0)return;
+  if(!initData){loadLeaderboard();return}   // not inside Telegram: nothing to save
   try{
-    await fetch('/api/leaderboard',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user_id:userId,user_name:userName,score:s})});
-    loadLeaderboard();
+    const r=await fetch('/api/leaderboard',{method:'POST',headers:authHeaders,body:JSON.stringify({score:s})});
+    const res=await r.json();
+    if(res&&res.ok){
+      if(res.best>best){best=res.best;localStorage.setItem('snakeBest',String(best));bestD.textContent=best}
+      if(res.rank)speedMsg.textContent=(res.is_new_best?'🏆 New record! ':'')+'Your rank: #'+res.rank;
+    }
   }catch(e){}
+  loadLeaderboard();
+}
+
+function lbRow(e,i,isMe){
+  const rank=i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`;
+  const cls=i===0?'gold':i===1?'silver':i===2?'bronze':'';
+  const name=escapeHtml((e.user_name||'Player').slice(0,14));
+  return `<div class="lb-row${isMe?' me':''}"><span class="lb-rank ${cls}">${rank}</span><span class="lb-name">${name}</span><span class="lb-score">${e.score}</span></div>`;
 }
 
 async function loadLeaderboard(){
   try{
-    const r=await fetch('/api/leaderboard');const data=await r.json();
-    if(!data.length){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">No scores yet</p>';return}
-    lbRows.innerHTML=data.map((e,i)=>{
-      const rank=i===0?'🥇':i===1?'🥈':i===2?'🥉':`#${i+1}`;
-      const cls=i===0?'gold':i===1?'silver':i===2?'bronze':'';
-      const name=escapeHtml((e.user_name||'Player').slice(0,14));
-      return `<div class="lb-row"><span class="lb-rank ${cls}">${rank}</span><span class="lb-name">${name}</span><span class="lb-score">${e.score}</span></div>`;
-    }).join('');
+    const r=await fetch('/api/leaderboard',{headers:authHeaders});
+    const data=await r.json();
+    const top=data.top||[],me=data.me;
+    // The record follows the Telegram account across devices.
+    if(me&&me.score>best){best=me.score;localStorage.setItem('snakeBest',String(best));bestD.textContent=best}
+    if(!top.length){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">No scores yet</p>'}
+    else{
+      lbRows.innerHTML=top.map((e,i)=>lbRow(e,i,myId&&e.user_id===myId)).join('');
+      if(me&&!top.some(e=>e.user_id===me.user_id)){
+        const name=escapeHtml((me.user_name||'Player').slice(0,14));
+        lbRows.innerHTML+=`<div class="lb-me">Your rank: <b>#${me.rank}</b> · ${name} · <b>${me.score}</b></div>`;
+      }
+    }
+    if(!initData)lbRows.innerHTML+='<div class="lb-note">Open the game from Telegram to save your scores.</div>';
   }catch(e){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">Error loading</p>'}
 }
 

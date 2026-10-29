@@ -11,6 +11,7 @@ import config
 import database
 import ai_service
 import ratelimit
+import tg_auth
 from handlers.admin_panel import panel_conversation, toggle_group_handler, debug_ai_handler
 from handlers.text_responses import keyword_handler
 from handlers.say_command import say_handler
@@ -72,28 +73,58 @@ class TelloHandler(tornado.web.RequestHandler):
             self.write(f.read())
 
 
+def verified_telegram_user(handler: tornado.web.RequestHandler) -> dict | None:
+    """Return the Telegram user proven by the X-Telegram-Init-Data header, else None.
+
+    The header carries Telegram.WebApp.initData, which Telegram signs with the
+    bot token — so unlike a user_id in the JSON body it cannot be forged.
+    """
+    init_data = handler.request.headers.get('X-Telegram-Init-Data', '')
+    return tg_auth.verify_init_data(init_data, config.TOKEN)
+
+
 class LeaderboardHandler(tornado.web.RequestHandler):
     async def get(self):
+        self.set_header('Content-Type', 'application/json')
         try:
-            data = await database.get_leaderboard()
-            self.write(json.dumps(data, ensure_ascii=False))
-            self.set_header('Content-Type', 'application/json')
+            top = await database.get_leaderboard()
+            me = None
+            user = verified_telegram_user(self)
+            if user:
+                me = await database.get_user_rank(user['id'])
+            self.write(json.dumps({"top": top, "me": me}, ensure_ascii=False))
         except Exception as e:
             logger.error(f"Leaderboard error: {e}")
             self.set_status(500)
-            self.write(json.dumps([]))
+            self.write(json.dumps({"top": [], "me": None}))
 
     async def post(self):
+        self.set_header('Content-Type', 'application/json')
+        user = verified_telegram_user(self)
+        if not user:
+            # Not opened from inside Telegram (or forged data): never store a score.
+            self.set_status(403)
+            self.write(json.dumps({"ok": False, "error": "unauthorized"}))
+            return
         try:
+            if not ratelimit.check_rate_limit(f"score:{user['id']}", 3, 10):
+                self.set_status(429)
+                self.write(json.dumps({"ok": False, "error": "rate_limit"}))
+                return
             body = json.loads(self.request.body)
-            user_id = body.get('user_id', '')
-            user_name = body.get('user_name', 'Player')
             score = int(body.get('score', 0))
-            if user_id and score > 0:
-                await database.submit_score(user_id, user_name, score)
+            if not (0 < score <= database.SNAKE_MAX_SCORE):
+                self.set_status(400)
+                self.write(json.dumps({"ok": False, "error": "bad_score"}))
+                return
+            result = await database.submit_score(
+                user['id'], user.get('username'), tg_auth.display_name(user), score
+            )
+            self.write(json.dumps({"ok": True, **result}))
         except Exception as e:
             logger.error(f"Score submit error: {e}")
-        self.write('ok')
+            self.set_status(500)
+            self.write(json.dumps({"ok": False}))
 
 
 class HealthHandler(tornado.web.RequestHandler):
@@ -136,6 +167,34 @@ class OthelloMoveHandler(tornado.web.RequestHandler):
             logger.error(f"Othello move error: {e}")
             self.set_status(400)
             self.write(json.dumps(None))
+
+
+class OthelloResignHandler(tornado.web.RequestHandler):
+    async def post(self):
+        self.set_header('Content-Type', 'application/json')
+        # The caller must prove who they are, otherwise anyone holding the game
+        # link could resign on behalf of a player.
+        user = verified_telegram_user(self)
+        if not user:
+            self.set_status(403)
+            self.write(json.dumps({"error": "unauthorized"}))
+            return
+        try:
+            if not ratelimit.check_rate_limit(f"resign:{user['id']}", 3, 5):
+                self.set_status(429)
+                self.write(json.dumps({"error": "rate_limit"}))
+                return
+            body = json.loads(self.request.body)
+            state = await othello_game.resign(body.get('game_id'), str(user['id']))
+            if state is None:
+                self.set_status(400)
+                self.write(json.dumps({"error": "cannot_resign"}))
+                return
+            self.write(json.dumps(state, ensure_ascii=False, default=str))
+        except Exception as e:
+            logger.error(f"Othello resign error: {e}")
+            self.set_status(400)
+            self.write(json.dumps({"error": "bad_request"}))
 
 
 class OthelloChatHandler(tornado.web.RequestHandler):
@@ -255,6 +314,7 @@ async def main():
         ("/tello", TelloHandler),
         ("/api/othello/state", OthelloStateHandler),
         ("/api/othello/move", OthelloMoveHandler),
+        ("/api/othello/resign", OthelloResignHandler),
         ("/api/othello/chat", OthelloChatHandler),
         ("/api/leaderboard", LeaderboardHandler),
         ("/health", HealthHandler),

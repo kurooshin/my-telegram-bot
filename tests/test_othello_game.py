@@ -184,3 +184,59 @@ def test_ai_solver():
     assert best_m in [(2, 3), (3, 2), (4, 5), (5, 4)]
 
 
+
+
+# ---- resign ----
+import asyncio
+
+import othello_game
+
+
+def _make_game(monkeypatch, black=("111", "Ali"), white=("222", "Sara")):
+    saved = []
+
+    async def fake_save(*args, **kwargs):
+        saved.append(args)
+
+    monkeypatch.setattr(othello_game.database, "save_othello_game", fake_save)
+    # No event loop timers in unit tests
+    monkeypatch.setattr(othello_game, "_schedule_game_timeout", lambda gid: None)
+
+    async def go():
+        return await othello_game.create_game(black[0], black[1], white[0], white[1])
+
+    gid = asyncio.run(go())
+    return gid, saved
+
+
+def test_resign_gives_win_to_opponent(monkeypatch):
+    gid, saved = _make_game(monkeypatch)
+    state = asyncio.run(othello_game.resign(gid, "111"))   # black resigns
+    assert state["game_over"] is True
+    assert state["winner"] == "white"
+    assert state["end_reason"] == "resign"
+    assert saved[-1][7] is True and saved[-1][8] == "white"   # persisted
+    othello_game.games.pop(gid, None)
+
+
+def test_white_resign_gives_win_to_black(monkeypatch):
+    gid, _ = _make_game(monkeypatch)
+    state = asyncio.run(othello_game.resign(gid, "222"))
+    assert state["winner"] == "black"
+    othello_game.games.pop(gid, None)
+
+
+def test_resign_rejects_non_player_and_finished_game(monkeypatch):
+    gid, _ = _make_game(monkeypatch)
+    assert asyncio.run(othello_game.resign(gid, "333")) is None      # stranger
+    assert asyncio.run(othello_game.resign("nope", "111")) is None   # unknown game
+    assert asyncio.run(othello_game.resign(gid, "111")) is not None
+    assert asyncio.run(othello_game.resign(gid, "222")) is None      # already over
+    othello_game.games.pop(gid, None)
+
+
+def test_no_moves_after_resign(monkeypatch):
+    gid, _ = _make_game(monkeypatch)
+    asyncio.run(othello_game.resign(gid, "222"))
+    assert asyncio.run(othello_game.make_move(gid, "111", 2, 3)) is None
+    othello_game.games.pop(gid, None)

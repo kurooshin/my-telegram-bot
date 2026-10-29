@@ -117,6 +117,40 @@ async def init_db() -> None:
             )
         ''')
 
+        # One row per Telegram user (keyed by the numeric Telegram ID).
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS snake_leaderboard (
+                user_id BIGINT PRIMARY KEY,
+                username TEXT,
+                display_name TEXT NOT NULL DEFAULT 'Player',
+                best_score INTEGER NOT NULL DEFAULT 0,
+                games_played INTEGER NOT NULL DEFAULT 0,
+                best_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_snake_lb_rank
+            ON snake_leaderboard (best_score DESC, best_at ASC)
+        ''')
+        # One-time migration of old records (only real numeric Telegram IDs;
+        # the random "anon_..." ids from browsers are skipped). The old
+        # snake_scores table is kept untouched as a backup.
+        if await conn.fetchval('SELECT COUNT(*) FROM snake_leaderboard') == 0:
+            await conn.execute('''
+                INSERT INTO snake_leaderboard
+                    (user_id, display_name, best_score, games_played, best_at)
+                SELECT user_id::bigint,
+                       COALESCE(MAX(user_name), 'Player'),
+                       MAX(score),
+                       COUNT(*),
+                       (ARRAY_AGG(created_at ORDER BY score DESC, created_at ASC))[1]
+                FROM snake_scores
+                WHERE user_id ~ '^[0-9]{1,15}$' AND score > 0
+                GROUP BY user_id
+                ON CONFLICT (user_id) DO NOTHING
+            ''')
+
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS othello_games (
                 game_id TEXT PRIMARY KEY,
@@ -309,30 +343,87 @@ async def get_role(user_id: int) -> str | None:
         return row['role'] if row else None
 
 
-async def submit_score(user_id: str, user_name: str, score: int) -> bool:
-    """Submit a Snake score. Returns True if it's a new personal best."""
+SNAKE_MAX_SCORE = 399  # 20x20 grid: the snake can never eat more than 399 foods
+
+
+_RANK_ORDER = "ORDER BY best_score DESC, best_at ASC, user_id ASC"
+
+
+async def submit_score(user_id: int, username: str | None, display_name: str, score: int) -> dict:
+    """Record a finished Snake game for a Telegram user.
+
+    Only the personal best is kept on the leaderboard; the name/@username are
+    refreshed on every game so renamed users show up correctly.
+    Returns {"is_new_best": bool, "best": int, "rank": int}.
+    """
+    score = max(0, min(int(score), SNAKE_MAX_SCORE))
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute('INSERT INTO snake_scores (user_id, user_name, score) VALUES ($1, $2, $3)', user_id, user_name, score)
-        old_best = await conn.fetchval(
-            'SELECT score FROM snake_scores WHERE user_id = $1 ORDER BY score DESC LIMIT 1 OFFSET 1',
-            user_id
-        )
-        return old_best is None or score > old_best
+        row = await conn.fetchrow('''
+            WITH old AS (SELECT best_score FROM snake_leaderboard WHERE user_id = $1)
+            INSERT INTO snake_leaderboard
+                (user_id, username, display_name, best_score, games_played, best_at)
+            VALUES ($1, $2, $3, $4, 1, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+                username = EXCLUDED.username,
+                display_name = EXCLUDED.display_name,
+                games_played = snake_leaderboard.games_played + 1,
+                best_score = GREATEST(snake_leaderboard.best_score, EXCLUDED.best_score),
+                best_at = CASE WHEN EXCLUDED.best_score > snake_leaderboard.best_score
+                               THEN NOW() ELSE snake_leaderboard.best_at END,
+                updated_at = NOW()
+            RETURNING best_score, (SELECT best_score FROM old) AS prev_best
+        ''', user_id, username, display_name, score)
+        prev = row['prev_best']
+        rank_row = await get_user_rank(user_id, conn)
+        return {
+            "is_new_best": score > 0 and (prev is None or score > prev),
+            "best": row['best_score'],
+            "rank": rank_row['rank'] if rank_row else None,
+        }
+
+
+async def get_user_rank(user_id: int, conn=None) -> dict | None:
+    """Return {user_id, user_name, username, score, rank} for one player, or None if unranked."""
+    async def _run(c):
+        r = await c.fetchrow(f'''
+            SELECT * FROM (
+                SELECT user_id, username, display_name AS user_name, best_score AS score,
+                       ROW_NUMBER() OVER ({_RANK_ORDER}) AS rank
+                FROM snake_leaderboard WHERE best_score > 0
+            ) t WHERE user_id = $1
+        ''', user_id)
+        if not r:
+            return None
+        d = dict(r)
+        d['user_id'] = str(d['user_id'])
+        return d
+
+    if conn is not None:
+        return await _run(conn)
+    pool = await get_pool()
+    async with pool.acquire() as c:
+        return await _run(c)
 
 
 async def get_leaderboard(limit: int = 10) -> list[dict]:
-    """Return the top Snake scores, each player's best score only, ordered by score descending."""
+    """Return the top Snake players (one row per user, best score), with ranks."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT s.user_id, MAX(s.user_name) AS user_name, MAX(s.score) AS score
-            FROM snake_scores s
-            GROUP BY s.user_id
-            ORDER BY score DESC
+        rows = await conn.fetch(f'''
+            SELECT user_id, username, display_name AS user_name, best_score AS score,
+                   ROW_NUMBER() OVER ({_RANK_ORDER}) AS rank
+            FROM snake_leaderboard
+            WHERE best_score > 0
+            {_RANK_ORDER}
             LIMIT $1
         ''', limit)
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            d['user_id'] = str(d['user_id'])
+            out.append(d)
+        return out
 
 
 async def is_ai_enabled(chat_id: int) -> bool:

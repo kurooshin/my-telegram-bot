@@ -7,6 +7,7 @@ to multiple workers/dynos, state becomes inconsistent. To scale horizontally,
 migrate to Redis or Postgres-backed state (e.g., store active games in the
 existing othello_games table and load on every request, or use Redis pub/sub).
 """
+import json
 import secrets
 import time
 import asyncio
@@ -270,6 +271,7 @@ async def create_game(black_id: str, black_name: str, white_id: str, white_name:
         'white': {'id': white_id, 'name': white_name},
         'game_over': False,
         'winner': None,
+        'end_reason': None,
         'last_move': None,
         'last_move_time': time.time(),
     }
@@ -307,6 +309,7 @@ def get_state(gid: str) -> dict | None:
         'white_score': w,
         'game_over': g['game_over'],
         'winner': g['winner'],
+        'end_reason': g.get('end_reason'),
         'last_move': g['last_move'],
         'valid_moves': [list(m) for m in valid],
     }
@@ -347,6 +350,7 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
             g['game_over'] = True
             b, w = counts(board)
             g['winner'] = 'draw' if b == w else ('black' if b > w else 'white')
+            g['end_reason'] = 'finished'
             _cancel_game_timeout(gid)
 
     await database.save_othello_game(
@@ -359,6 +363,37 @@ async def make_move(gid: str, user_id: str, r: int, c: int) -> dict | None:
         _schedule_game_timeout(gid)
         if user_id != 'bot_ai' and (g['black']['id'] == 'bot_ai' or g['white']['id'] == 'bot_ai'):
             asyncio.create_task(async_ai_step(gid))
+    return get_state(gid)
+
+
+async def resign(gid: str, user_id: str) -> dict | None:
+    """Let a player give up. The opponent wins immediately.
+
+    Returns the updated state, or None if the game doesn't exist, is already
+    over, or `user_id` is not one of its two players.
+    """
+    g = games.get(gid)
+    if not g or g['game_over']:
+        return None
+    uid = str(user_id)
+    if str(g['black']['id']) == uid:
+        winner = 'white'
+    elif str(g['white']['id']) == uid:
+        winner = 'black'
+    else:
+        return None
+
+    g['game_over'] = True
+    g['winner'] = winner
+    g['end_reason'] = 'resign'
+    _cancel_game_timeout(gid)
+    await database.save_othello_game(
+        gid, g['board'], g['turn'],
+        g['black']['id'], g['black']['name'],
+        g['white']['id'], g['white']['name'],
+        g['game_over'], g['winner'], g['last_move']
+    )
+    logger.info("Game %s: %s resigned, %s wins", gid, uid, winner)
     return get_state(gid)
 
 
@@ -394,6 +429,7 @@ async def _game_idle_worker(gid: str) -> None:
             g['winner'] = 'white'
         else:
             g['winner'] = 'black'
+        g['end_reason'] = 'timeout'
         g['last_move'] = None
         await database.save_othello_game(
             gid, g['board'], g['turn'],
@@ -441,6 +477,7 @@ async def restore_games() -> None:
             'white': {'id': str(row['white_id']), 'name': row['white_name']},
             'game_over': bool(row['game_over']),
             'winner': row['winner'],
+            'end_reason': None,
             'last_move': last_move,
             'last_move_time': time.time(),
         }

@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler
@@ -46,6 +47,22 @@ def game_button(text, url, use_webapp, chat_type):
     return {"text": text, "url": url}
 
 
+def snake_button(chat_type: str) -> dict:
+    """Snake launch button.
+
+    Scores are saved by Telegram user ID, which only exists when the game is
+    opened as a Mini App. Telegram forbids web_app buttons in groups, so there
+    we deep-link to the bot's private chat (/start snake) which then shows a
+    real Mini App button — a plain URL would open in a browser with no identity.
+    """
+    url = f"{config.WEBHOOK_URL}/game"
+    if chat_type in ("group", "supergroup"):
+        if BOT_USERNAME:
+            return {"text": "🐍 Snake Pro", "url": f"https://t.me/{BOT_USERNAME}?start=snake"}
+        return {"text": "🐍 Snake Pro", "url": url}
+    return {"text": "🐍 Snake Pro", "web_app": {"url": url}}
+
+
 def lobby_markup(chat_id: int | None = None):
     return {"inline_keyboard": othello_game.lobby_buttons(chat_id)}
 
@@ -66,6 +83,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
         )
+    elif len(parts) >= 2 and parts[1] == "snake":
+        await update.message.reply_text(
+            "🐍 **Snake Pro**\n\nTap below to play — your best score is saved on the leaderboard under your Telegram account.",
+            parse_mode="Markdown",
+            api_kwargs={"reply_markup": {"inline_keyboard": [[snake_button("private")]]}}
+        )
     else:
         await update.message.reply_text(
             "🎮 **Game Hub**\n\nUse /game to see available games, or /tello to join Othello!",
@@ -75,7 +98,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        base = config.WEBHOOK_URL
         ct = update.effective_chat.type
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
@@ -84,7 +106,7 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             api_kwargs={
                 "reply_markup": {
                     "inline_keyboard": [[
-                        game_button("🐍 Snake Pro", f"{base}/game", True, ct)
+                        snake_button(ct)
                     ], [
                         {"text": "⚫⚪ Othello Match Arena", "callback_data": "oth_hub"}
                     ]]
@@ -269,18 +291,32 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         rows = await database.get_leaderboard()
         if not rows:
-            await update.message.reply_text("🏆 No scores recorded yet. Play Snake and be the first!", parse_mode="Markdown")
+            await update.message.reply_text("🏆 No scores recorded yet. Play Snake and be the first!")
             return
-        text = "🏆 **Snake Pro Leaderboard**\n\n"
-        for i, r in enumerate(rows, 1):
-            medal = {1: "🥇", 2: "🥈", 3: "🥉"}.get(i, f"*{i}.*")
-            name = (r['user_name'] or 'Player')[:20]
-            text += f"{medal} **{name}** — `{r['score']}` pts\n"
-        await update.message.reply_text(text, parse_mode="Markdown")
+        me_id = str(update.effective_user.id) if update.effective_user else None
+        medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+        def line(rank, name, score, is_me):
+            label = medals.get(rank, f"<b>{rank}.</b>")
+            mark = "  ◀ you" if is_me else ""
+            return f"{label} <b>{html.escape((name or 'Player')[:20])}</b> — <code>{score}</code> pts{mark}\n"
+
+        text = "🏆 <b>Snake Pro Leaderboard</b>\n\n"
+        in_top = False
+        for r in rows:
+            is_me = r['user_id'] == me_id
+            in_top = in_top or is_me
+            text += line(r['rank'], r['user_name'], r['score'], is_me)
+
+        # Player outside the top 10 still sees where they stand.
+        if me_id and not in_top:
+            me = await database.get_user_rank(int(me_id))
+            if me:
+                text += "…\n" + line(me['rank'], me['user_name'], me['score'], True)
+        await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Leaderboard error: {e}")
         await update.message.reply_text("❌ Could not load leaderboard.")
-
 
 
 game_handler = CommandHandler("game", game_command)

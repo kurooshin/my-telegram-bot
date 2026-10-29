@@ -36,6 +36,9 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .score-box .dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
 .score-box .dot.black{background:#fff;border-color:#888}
 .score-box .dot.white{background:#4ade80;border-color:#4ade80}
+.btn-resign{margin-top:8px;padding:8px 20px;border:1px solid rgba(255,107,107,.45);border-radius:10px;background:rgba(255,107,107,.1);color:#ff8a8a;font-size:.8rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-resign:active{transform:scale(.96)}
+.btn-resign:disabled{opacity:.5;cursor:default}
 .spectator-badge{display:inline-block;background:rgba(255,193,7,.15);color:#ffc107;padding:2px 10px;border-radius:999px;font-size:.7rem;font-weight:700}
 .chat-toggle{position:fixed;right:14px;bottom:14px;z-index:8;width:44px;height:44px;border-radius:50%;border:none;background:linear-gradient(135deg,#4ade80,#22c55e);color:#0a0a15;font-size:1.3rem;cursor:pointer;box-shadow:0 4px 15px rgba(74,222,128,.3);transition:all .2s;display:flex;align-items:center;justify-content:center}
 .chat-toggle:active{transform:scale(.9)}
@@ -90,6 +93,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
     <div><span class="dot white"></span> White: <span id="whiteScore">2</span></div>
   </div>
   <div id="playerInfo" style="font-size:.7rem;color:#555;margin-top:4px"></div>
+  <button class="btn-resign" id="resignBtn" style="display:none">🏳️ Resign · تسلیم</button>
 </div>
 <button class="chat-toggle" id="chatToggle">💬<span class="chat-new-badge" id="chatBadge">1</span></button>
 <div class="chat-panel" id="chatPanel">
@@ -120,6 +124,7 @@ const scoreText=document.getElementById('scoreText');
 const resultText=document.getElementById('resultText');
 const playerInfo=document.getElementById('playerInfo');
 const homeBtn=document.getElementById('homeBtn');
+const resignBtn=document.getElementById('resignBtn');
 const toast=document.getElementById('toast');
 const chatToggle=document.getElementById('chatToggle');
 const chatBadge=document.getElementById('chatBadge');
@@ -261,6 +266,14 @@ function applyState(s){
       winnerText.textContent=isMe?'🏆 You Win!':'🏆 '+wName+' Wins!';
     }
     scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
+    if(s.end_reason==='resign'&&w!=='draw'){
+      const loserName=w==='black'?s.white?.name:s.black?.name;
+      resultText.textContent='🏳️ '+(loserName||'Opponent')+' resigned';
+    }else if(s.end_reason==='timeout'&&w!=='draw'){
+      const loserName=w==='black'?s.white?.name:s.black?.name;
+      resultText.textContent='⏰ '+(loserName||'Opponent')+' ran out of time';
+    }else{resultText.textContent='';}
+    updateResignBtn();
     gameOverOverlay.classList.remove('hidden');
     stopPolling();
     return;
@@ -269,8 +282,45 @@ function applyState(s){
   statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+
     (isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
   playerInfo.textContent=(s.black?.name||'?')+' (●) vs '+(s.white?.name||'?')+' (○)';
+  updateResignBtn();
   draw();
 }
+
+// ---- Resign ----
+// Shown only to a real player of an unfinished game who is opened from inside
+// Telegram (the server verifies Telegram's signed initData, so nobody can
+// resign on behalf of someone else just by knowing the game link).
+function canResign(){
+  if(isSpectator||!state||state.game_over||!myColor)return false;
+  if(!tg||!tg.initData||!tgUserId)return false;
+  const slot=myColor==='b'?state.black:state.white;
+  return !!slot&&String(slot.id)===tgUserId;
+}
+function updateResignBtn(){
+  resignBtn.style.display=canResign()?'inline-block':'none';
+}
+function askConfirm(msg,cb){
+  if(tg&&typeof tg.showConfirm==='function'){tg.showConfirm(msg,ok=>cb(!!ok));}
+  else{cb(window.confirm(msg));}
+}
+resignBtn.addEventListener('click',()=>{
+  if(!canResign())return;
+  askConfirm('Resign this game? Your opponent will win.\nتسلیم می‌شوی؟ حریف برنده می‌شود.',async ok=>{
+    if(!ok)return;
+    resignBtn.disabled=true;
+    try{
+      const res=await fetch('/api/othello/resign',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg.initData},
+        body:JSON.stringify({game_id:gameId})
+      });
+      const data=await res.json();
+      if(res.ok&&data&&data.board){applyState(data);showToast('🏳️ You resigned');}
+      else{showToast('❌ Could not resign');}
+    }catch(e){showToast('❌ Network error');}
+    resignBtn.disabled=false;
+  });
+});
 
 // ---- Polling ----
 async function pollState(){
