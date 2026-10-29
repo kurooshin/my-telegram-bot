@@ -158,6 +158,27 @@ async def init_db() -> None:
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_messages (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        await conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_user_messages_user
+            ON user_messages (user_id, id DESC)
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_styles (
+                user_id BIGINT PRIMARY KEY,
+                summary TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
 
 async def _migrate_bot_groups(conn):
     """Idempotent migration: sync bot_groups columns with the current schema.
@@ -536,3 +557,78 @@ async def set_trigger_word(word: str) -> None:
             """, word)
     except Exception as e:
         logger.error("set_trigger_word error: %s", e, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Smart-reply (/suggest) storage: raw messages + learned style summary
+# ---------------------------------------------------------------------------
+
+async def save_message(user_id: int, chat_id: int, text: str) -> None:
+    """Store one group message of a user (used to learn their writing style)."""
+    text = (text or "").strip()
+    if not text:
+        return
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'INSERT INTO user_messages (user_id, chat_id, text) VALUES ($1, $2, $3)',
+            user_id, chat_id, text
+        )
+
+
+async def get_recent_messages(user_id: int, limit: int = 30) -> list[dict]:
+    """Return the user's latest messages, newest first, as dicts with
+    'text' and 'chat_id' keys."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT text, chat_id FROM user_messages '
+            'WHERE user_id = $1 ORDER BY id DESC LIMIT $2',
+            user_id, limit
+        )
+    return [{'text': r['text'], 'chat_id': r['chat_id']} for r in rows]
+
+
+async def trim_user_messages(user_id: int, keep: int = 40) -> None:
+    """Keep only the newest `keep` messages of a user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'DELETE FROM user_messages WHERE user_id = $1 AND id NOT IN ('
+            '  SELECT id FROM user_messages WHERE user_id = $1 ORDER BY id DESC LIMIT $2)',
+            user_id, keep
+        )
+
+
+async def get_style(user_id: int) -> str | None:
+    """Return the learned style summary of a user, or None."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            'SELECT summary FROM user_styles WHERE user_id = $1', user_id
+        )
+
+
+async def save_style(user_id: int, summary: str) -> None:
+    """Insert or update the learned style summary of a user."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO user_styles (user_id, summary, updated_at)
+            VALUES ($1, $2, CURRENT_TIMESTAMP)
+            ON CONFLICT (user_id) DO UPDATE SET
+                summary = EXCLUDED.summary,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            user_id, summary
+        )
+
+
+async def delete_user_data(user_id: int) -> None:
+    """Delete everything stored about a user for smart-reply (/forget_me)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM user_messages WHERE user_id = $1', user_id)
+        await conn.execute('DELETE FROM user_styles WHERE user_id = $1', user_id)
+        await conn.execute('DELETE FROM user_style_samples WHERE user_id = $1', user_id)
