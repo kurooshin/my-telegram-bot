@@ -223,7 +223,7 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
             current = await database.get_bot_persona()
             if current:
                 msg = (
-                    f"🎭 **شخصیت/معرفی فعلی بات:**\n\n{current}\n\n"
+                    f"🎭 <b>شخصیت/معرفی فعلی بات:</b>\n\n{_h(current)}\n\n"
                     "✍️ متن جدید را بفرست (یا /cancel برای انصراف):"
                 )
             else:
@@ -231,14 +231,14 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
                     "🎭 هنوز شخصیتی تنظیم نشده.\n\n"
                     "✍️ متن معرفی و قوانین بات را بفرست (یا /cancel برای انصراف):"
                 )
-            await query.edit_message_text(msg, parse_mode="Markdown")
+            await query.edit_message_text(msg, parse_mode="HTML")
             return EDIT_PERSONA
         elif query.data == "btn_set_trigger" and role == 'admin':
             current = await database.get_trigger_word()
             await query.edit_message_text(
-                f"📢 کلمه صدا زدن فعلی: `{current}`\n\n"
+                f"📢 کلمه صدا زدن فعلی: <code>{_h(current)}</code>\n\n"
                 "✍️ کلمه جدید را بفرست (یا /cancel برای انصراف):",
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             return SET_TRIGGER
         elif query.data == "btn_list_groups" and role == 'admin':
@@ -278,12 +278,12 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
                     reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 کلمات کلیدی", callback_data="kw_menu")]]),
                 )
                 return ConversationHandler.END
-            lines = ["💡 **پیام‌های بی‌جواب پرتکرار:**\n"]
+            lines = ["💡 <b>پیام‌های بی‌جواب پرتکرار:</b>\n"]
             for i, item in enumerate(top, 1):
-                txt = _esc_md(item['text'][:40])
-                lines.append(f"{i}. `{txt}` — {item['total']} بار")
+                txt = _h(item['text'][:40])
+                lines.append(f"{i}. <code>{txt}</code> — {item['total']} بار")
             await query.edit_message_text(
-                "\n".join(lines), parse_mode="Markdown",
+                "\n".join(lines), parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 کلمات کلیدی", callback_data="kw_menu")]]),
             )
         elif query.data.startswith("del_"):
@@ -297,7 +297,7 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
             pool = await database.get_pool()
             async with pool.acquire() as conn:
                 await conn.execute("DELETE FROM bot_admins WHERE user_id = $1 AND role = 'co_admin'", co_id)
-                await display_beautiful_admins(query, "✅ Co-admin removed.\n\n")
+                await display_beautiful_admins(query, "✅ ادمین کمکی حذف شد.\n\n")
     except Exception as e:
         logger.error("Callback handler error for %s: %s", query.data, e, exc_info=True)
         await query.edit_message_text("❌ خطا در پردازش درخواست. لاگ را بررسی کن.")
@@ -324,8 +324,9 @@ async def _show_group_picker(query):
         keyboard.append([InlineKeyboardButton(label, callback_data=f"btn_setgroup_{gid}")])
     keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="btn_close")])
     await query.edit_message_text(
-        "📋 **انتخاب گروه**\nگروه مورد نظر را انتخاب کن:",
+        "📋 <b>انتخاب گروه</b>\nگروه مورد نظر را انتخاب کن:",
         reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
     )
 
 
@@ -358,8 +359,9 @@ async def _show_group_management_list(query, role: str):
     keyboard.append([InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="btn_back_global")])
     keyboard.append([InlineKeyboardButton("❌ بستن", callback_data="btn_close")])
     await query.edit_message_text(
-        "🏘 **مدیریت گروه‌ها**\nبرای مشاهده تنظیمات روی هر گروه کلیک کن:",
+        "🏘 <b>مدیریت گروه‌ها</b>\nبرای مشاهده تنظیمات روی هر گروه کلیک کن:",
         reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
     )
 
 
@@ -381,13 +383,13 @@ async def _show_submenu_for_group(query, gid: int, role: str):
         ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
     else:
         ai_label = "🔴 AI فعلاً خاموشه"
-    header = f"🏘 **{_esc_md(str(gtitle))}**\nآیدی: `{gid}`\n\n{active_label} | {ai_label}\n\n"
+    header = f"🏘 <b>{_h(gtitle)}</b>\nآیدی: <code>{gid}</code>\n\n{active_label} | {_h(ai_label)}\n\n"
     keyboard = [
         [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai_pm" if config.AI_ENABLED else "menu_ai_off")],
         [InlineKeyboardButton("⛔️ فعال/غیرفعال کردن گروه", callback_data="btn_toggle_active_pm")],
         [InlineKeyboardButton("🔙 بازگشت به لیست گروه‌ها", callback_data="btn_list_groups")],
     ]
-    await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 def _esc_md(text: str) -> str:
@@ -550,19 +552,22 @@ async def display_beautiful_admins(query, prefix=""):
     pool = await database.get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('SELECT user_id, role, name FROM bot_admins ORDER BY role DESC, name ASC')
-        if not rows:
-            await query.edit_message_text(f"{prefix}ℹ️ No admins found.")
-            return
-        text = f"{prefix}👑 **Admins:**\n\n"
-        keyboard = []
-        for i, r in enumerate(rows, 1):
-            role_emoji = "👑" if r['role'] == 'admin' else "👤"
-            name_safe = _esc_md(r['name'] or 'Unknown')
-            text += f"{i}. {role_emoji} `{r['user_id']}` — {name_safe} ({r['role']})\n"
-            if r['role'] == 'co_admin':
-                keyboard.append([InlineKeyboardButton(f"🗑 Remove {r['name']}", callback_data=f"remad_{r['user_id']}")])
-        markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+    back = [InlineKeyboardButton("🔙 سایر تنظیمات", callback_data="menu_other")]
+    if not rows:
+        await query.edit_message_text(
+            f"{_h(prefix)}ℹ️ هیچ ادمینی پیدا نشد.", reply_markup=InlineKeyboardMarkup([back])
+        )
+        return
+    text = f"{_h(prefix)}👑 <b>ادمین‌ها:</b>\n\n"
+    keyboard = []
+    for i, r in enumerate(rows, 1):
+        role_emoji = "👑" if r['role'] == 'admin' else "👤"
+        role_label = "ادمین اصلی" if r['role'] == 'admin' else "ادمین کمکی"
+        text += f"{i}. {role_emoji} <code>{r['user_id']}</code> — {_h(r['name'] or 'Unknown')} ({role_label})\n"
+        if r['role'] == 'co_admin':
+            keyboard.append([InlineKeyboardButton(f"🗑 حذف {(r['name'] or r['user_id'])}", callback_data=f"remad_{r['user_id']}")])
+    keyboard.append(back)
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -689,7 +694,7 @@ async def process_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ کلمه نمی‌تواند خالی باشد.")
         return SET_TRIGGER
     await database.set_trigger_word(word)
-    await update.message.reply_text(f"✅ کلمه صدا زدن بات به `{word}` تغییر یافت.", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ کلمه صدا زدن بات به <code>{_h(word)}</code> تغییر یافت.", parse_mode="HTML")
     context.user_data.clear()
     return ConversationHandler.END
 
