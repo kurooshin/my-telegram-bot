@@ -3,6 +3,7 @@
 import html
 import logging
 import math
+import time
 import warnings
 import asyncpg
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -20,6 +21,7 @@ ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME, EDIT_PERSONA,
 MENU_PHRASE_REGEX = r"^\s*منو[یي][\s\u200c]*عباس\s*[!.؟?]*\s*$"
 
 KW_PAGE_SIZE = 8
+FLOW_TTL = 180  # ثانیه؛ بعد از این مدت بی‌فعالیتی، پنل دیگه پیام‌های ادمین رو نمی‌بلعه
 AI_OFF_ALERT = "🔴 بخش هوش مصنوعی (AI و یادگیری سبک) فعلاً خاموشه. فقط کلمات کلیدی کار می‌کنن."
 
 
@@ -65,6 +67,7 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     logger.info("[PANEL] button '%s' pressed by user %s", query.data, update.effective_user.id)
+    context.user_data["_flow_ts"] = time.time()
 
     # دکمه‌ی AI وقتی خاموشه فقط یه هشدار نشون میده (باید قبل از answer() عمومی بیاد)
     if query.data == "menu_ai_off":
@@ -399,6 +402,22 @@ def _esc_md(text: str) -> str:
     for char in ('_', '*', '`', '['):
         text = text.replace(char, f'\\{char}')
     return text
+
+
+def _guard(handler):
+    """اگه ادمین وسط یه فرآیند پنل (مثل افزودن کلمه) رها کرده باشه و FLOW_TTL گذشته باشه،
+    پیامش رو به‌جای بلعیدن، عادی (مثل کلمات کلیدی) پردازش می‌کنیم.
+    (conversation_timeout خود PTB بدون JobQueue کار نمی‌کنه، برای همین این محافظ لازمه.)"""
+    async def guarded(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        started = context.user_data.get("_flow_ts")
+        if started is not None and time.time() - started > FLOW_TTL:
+            context.user_data.clear()
+            from handlers import text_responses
+            await text_responses.monitor_keywords(update, context)
+            return ConversationHandler.END
+        context.user_data["_flow_ts"] = time.time()
+        return await handler(update, context)
+    return guarded
 
 
 def _h(text) -> str:
@@ -813,19 +832,18 @@ panel_conversation = ConversationHandler(
         CallbackQueryHandler(inline_button_router, pattern="^(btn_|del_|remad_|pmgrp_|kw_|menu_)")
     ],
     states={
-        ADD_KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_keyword)],
-        ADD_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_response)],
+        ADD_KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_keyword))],
+        ADD_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_response))],
         ADD_MATCH_TYPE: [CallbackQueryHandler(process_match_type, pattern="^mtype_")],
-        ADD_CO_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_id)],
-        ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)],
-        EDIT_PERSONA: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_persona)],
-        SET_TRIGGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_trigger)],
-        EDIT_KW_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit_kw_response)],
-        EDIT_KW_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit_kw_text)],
+        ADD_CO_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_co_admin_id))],
+        ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_co_admin_name))],
+        EDIT_PERSONA: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_persona))],
+        SET_TRIGGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_trigger))],
+        EDIT_KW_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_edit_kw_response))],
+        EDIT_KW_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, _guard(process_edit_kw_text))],
         ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, conversation_timeout_handler)],
     },
     fallbacks=[CommandHandler("cancel", cancel_action)],
     per_message=False,
     allow_reentry=True,
-    conversation_timeout=300,
 )
