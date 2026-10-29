@@ -61,7 +61,11 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .chat-new-badge{position:absolute;top:-4px;right:-4px;background:#ff6b6b;color:#fff;font-size:.6rem;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;display:none}
 .toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(74,222,128,.9);color:#0a0a15;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
 .toast.show{opacity:1}
-@media(max-width:420px){.header h1{font-size:1rem}.status{font-size:.8rem;padding:3px 10px}.picker-overlay h2{font-size:1.2rem}}
+.timer-badge{font-size:.85rem;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.08);color:#4ade80;border:1px solid rgba(74,222,128,.3);display:none;align-items:center;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums;transition:all .2s}
+.timer-badge.warning{background:rgba(255,183,3,.15);color:#ffb703;border-color:rgba(255,183,3,.4)}
+.timer-badge.danger{background:rgba(255,77,79,.2);color:#ff4d4f;border-color:rgba(255,77,79,.5);animation:timerPulse 1s infinite}
+@keyframes timerPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+@media(max-width:420px){.header h1{font-size:1rem}.status{font-size:.8rem;padding:3px 10px}.picker-overlay h2{font-size:1.2rem}.timer-badge{font-size:.75rem;padding:3px 8px}}
 </style>
 </head>
 <body>
@@ -69,6 +73,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
   <div class="header">
     <h1>⚫ OTHELLO ⚪</h1>
     <div class="status" id="statusBar">Loading...</div>
+    <div class="timer-badge" id="timerBadge">⏱ 60s</div>
   </div>
   <div class="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
@@ -113,6 +118,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 // ---- DOM refs ----
 const canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
 const statusBar=document.getElementById('statusBar');
+const timerBadge=document.getElementById('timerBadge');
 const blackScore=document.getElementById('blackScore'),whiteScore=document.getElementById('whiteScore');
 const pickerOverlay=document.getElementById('pickerOverlay');
 const gameOverOverlay=document.getElementById('gameOverOverlay');
@@ -158,6 +164,49 @@ let chatOpen=false;
 let lastChatTs=0;
 let chatPollTimer=null;
 let pollTimer=null;
+let timerTicker=null;
+let currentSecondsLeft=60;
+
+function startTimerTicker(secs){
+  currentSecondsLeft=Math.max(0,Math.floor(secs));
+  renderTimer();
+  if(timerTicker)clearInterval(timerTicker);
+  timerTicker=setInterval(()=>{
+    if(!state||state.game_over){
+      stopTimerTicker();
+      return;
+    }
+    currentSecondsLeft=Math.max(0,currentSecondsLeft-1);
+    renderTimer();
+    if(currentSecondsLeft<=0){
+      pollState();
+    }
+  },1000);
+}
+
+function stopTimerTicker(){
+  if(timerTicker){
+    clearInterval(timerTicker);
+    timerTicker=null;
+  }
+  if(timerBadge)timerBadge.style.display='none';
+}
+
+function renderTimer(){
+  if(!timerBadge)return;
+  if(!state||state.game_over){
+    timerBadge.style.display='none';
+    return;
+  }
+  timerBadge.style.display='inline-flex';
+  timerBadge.textContent='⏱ '+currentSecondsLeft+'s';
+  timerBadge.classList.remove('warning','danger');
+  if(currentSecondsLeft<=10){
+    timerBadge.classList.add('danger');
+  }else if(currentSecondsLeft<=25){
+    timerBadge.classList.add('warning');
+  }
+}
 
 const SIZE=8;
 let cellSize;
@@ -256,23 +305,31 @@ function applyState(s){
   blackScore.textContent=s.black_score;
   whiteScore.textContent=s.white_score;
   if(s.game_over){
+    stopTimerTicker();
     const w=s.winner;
-    if(w==='draw'){
+    if(w==='cancelled'||s.end_reason==='timeout_cancelled'){
+      statusBar.textContent='⏱ Match cancelled';
+      winnerText.textContent='⏱ Match Cancelled';
+      scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
+      resultText.textContent='Game timed out (no moves played)';
+    }else if(w==='draw'){
       statusBar.textContent='🤝 Draw! '+s.black_score+' - '+s.white_score;
       winnerText.textContent='🤝 Draw!';
+      scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
+      resultText.textContent='';
     }else{
       const wName=w==='black'?s.black?.name:s.white?.name;
       const isMe=!isSpectator&&myColor===(w==='black'?'b':'w');
       winnerText.textContent=isMe?'🏆 You Win!':'🏆 '+wName+' Wins!';
+      scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
+      if(s.end_reason==='resign'){
+        const loserName=w==='black'?s.white?.name:s.black?.name;
+        resultText.textContent='🏳️ '+(loserName||'Opponent')+' resigned';
+      }else if(s.end_reason==='timeout'){
+        const loserName=w==='black'?s.white?.name:s.black?.name;
+        resultText.textContent='⏰ '+(loserName||'Opponent')+' timed out (forfeit)';
+      }else{resultText.textContent='';}
     }
-    scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
-    if(s.end_reason==='resign'&&w!=='draw'){
-      const loserName=w==='black'?s.white?.name:s.black?.name;
-      resultText.textContent='🏳️ '+(loserName||'Opponent')+' resigned';
-    }else if(s.end_reason==='timeout'&&w!=='draw'){
-      const loserName=w==='black'?s.white?.name:s.black?.name;
-      resultText.textContent='⏰ '+(loserName||'Opponent')+' ran out of time';
-    }else{resultText.textContent='';}
     updateResignBtn();
     gameOverOverlay.classList.remove('hidden');
     stopPolling();
@@ -282,6 +339,9 @@ function applyState(s){
   statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+
     (isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
   playerInfo.textContent=(s.black?.name||'?')+' (●) vs '+(s.white?.name||'?')+' (○)';
+  if(typeof s.time_left==='number'){
+    startTimerTicker(s.time_left);
+  }
   updateResignBtn();
   draw();
 }
@@ -462,7 +522,7 @@ pickSpec.addEventListener('click',()=>{
   showToast('👀 Watching');
   applyState(state);
 });
-homeBtn.addEventListener('click',()=>{stopPolling();gameOverOverlay.classList.add('hidden');});
+homeBtn.addEventListener('click',()=>{stopPolling();stopTimerTicker();gameOverOverlay.classList.add('hidden');});
 
 function showToast(msg){
   toast.textContent=msg;

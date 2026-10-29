@@ -240,3 +240,45 @@ def test_no_moves_after_resign(monkeypatch):
     asyncio.run(othello_game.resign(gid, "222"))
     assert asyncio.run(othello_game.make_move(gid, "111", 2, 3)) is None
     othello_game.games.pop(gid, None)
+
+
+def test_timeout_initial_no_moves_cancels_game(monkeypatch):
+    gid, saved = _make_game(monkeypatch)
+    g = othello_game.games[gid]
+    # Set deadline in the past to trigger timeout immediately
+    g["turn_deadline"] = 0
+    asyncio.run(othello_game._game_idle_worker(gid))
+    state = othello_game.get_state(gid)
+    assert state["game_over"] is True
+    assert state["winner"] == "cancelled"
+    assert state["end_reason"] == "timeout_cancelled"
+    othello_game.games.pop(gid, None)
+
+
+def test_timeout_during_game_forfeits_active_player(monkeypatch):
+    gid, saved = _make_game(monkeypatch)
+    # Player 1 (black) makes a valid move
+    asyncio.run(othello_game.make_move(gid, "111", 2, 3))
+    # It is now White's turn ('w')
+    assert othello_game.games[gid]["turn"] == "w"
+    assert othello_game.games[gid]["move_count"] == 1
+
+    # White times out
+    othello_game.games[gid]["turn_deadline"] = 0
+    asyncio.run(othello_game._game_idle_worker(gid))
+
+    state = othello_game.get_state(gid)
+    assert state["game_over"] is True
+    assert state["winner"] == "black"
+    assert state["end_reason"] == "timeout"
+    othello_game.games.pop(gid, None)
+
+
+def test_turn_timer_in_state(monkeypatch):
+    gid, _ = _make_game(monkeypatch)
+    state = othello_game.get_state(gid)
+    assert state["turn_timeout"] == 60
+    assert 0 <= state["time_left"] <= 60
+    assert state["move_count"] == 0
+    othello_game.games.pop(gid, None)
+
