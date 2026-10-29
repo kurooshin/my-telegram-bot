@@ -1,15 +1,26 @@
 """Admin panel — keyword management, co-admin management, group toggling."""
 
+import html
 import logging
+import math
 import warnings
+import asyncpg
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+import config
 import database
 
 logger = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", message=".*per_message.*CallbackQueryHandler.*")
 
-ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME, EDIT_PERSONA, SET_TRIGGER = range(7)
+ADD_KEYWORD, ADD_RESPONSE, ADD_MATCH_TYPE, ADD_CO_ID, ADD_CO_NAME, EDIT_PERSONA, SET_TRIGGER, \
+    EDIT_KW_RESPONSE, EDIT_KW_TEXT = range(9)
+
+# عبارتی که توی چت نوشته بشه منوی مدیریت باز میشه (علاوه بر /menu و /panel)
+MENU_PHRASE_REGEX = r"^\s*منو[یي][\s\u200c]*عباس\s*[!.؟?]*\s*$"
+
+KW_PAGE_SIZE = 8
+AI_OFF_ALERT = "🔴 بخش هوش مصنوعی (AI و یادگیری سبک) فعلاً خاموشه. فقط کلمات کلیدی کار می‌کنن."
 
 
 async def _get_target_chat(context, chat, role):
@@ -42,40 +53,22 @@ async def panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     chat = update.effective_chat
-
-    # In a group → per-group panel (unchanged)
-    if chat.type in ("group", "supergroup"):
-        target_id = chat.id
-        target_title = chat.title
-        try:
-            ai_on = await database.is_ai_enabled(target_id)
-        except Exception as e:
-            logger.error("panel_command: is_ai_enabled failed for %s: %s", target_id, e)
-            ai_on = False
-        header = f"🛠 **پنل مدیریت** — {_esc_md(str(target_title))}\n\n"
-        ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
-        keyboard = [
-            [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
-            [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
-            [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai")],
-            [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
-        ]
-        if role == 'admin':
-            keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
-            keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
-            keyboard.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
-            keyboard.append([InlineKeyboardButton("📢 تنظیم کلمه صدا زدن بات", callback_data="btn_set_trigger")])
-        await update.message.reply_text(
-            header, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return ConversationHandler.END
-
-    # Private chat → global management panel
-    return await _show_global_panel(update, role)
+    title = chat.title if chat.type in ("group", "supergroup") else None
+    await update.message.reply_text(
+        _main_menu_header(title),
+        reply_markup=_main_menu_markup(role),
+        parse_mode="HTML",
+    )
+    return ConversationHandler.END
 
 
 async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+
+    # دکمه‌ی AI وقتی خاموشه فقط یه هشدار نشون میده (باید قبل از answer() عمومی بیاد)
+    if query.data == "menu_ai_off":
+        await query.answer(AI_OFF_ALERT, show_alert=True)
+        return ConversationHandler.END
 
     # Always acknowledge the callback FIRST — before any DB calls,
     # so the Telegram loading spinner stops even if something crashes later.
@@ -95,14 +88,89 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         chat = update.effective_chat
 
-        if query.data == "btn_add_kw":
-            await query.edit_message_text("📝 Send the new keyword:")
+        # دکمه‌های قدیمی AI/شخصیت روی پیام‌های قدیمی هنوز ممکنه کلیک بشن
+        if not config.AI_ENABLED and query.data in ("btn_toggle_ai", "btn_toggle_ai_pm", "btn_edit_persona"):
+            await query.edit_message_text(AI_OFF_ALERT)
+            return ConversationHandler.END
+
+        if query.data == "menu_main" or query.data == "btn_back_global":
+            title = chat.title if chat.type in ("group", "supergroup") else None
+            await query.edit_message_text(
+                _main_menu_header(title), reply_markup=_main_menu_markup(role), parse_mode="HTML"
+            )
+        elif query.data == "menu_other":
+            await _show_other_settings(query, role, chat)
+        elif query.data == "kw_menu":
+            await _show_kw_menu(query)
+        elif query.data == "kw_noop":
+            pass
+        elif query.data.startswith("kw_list_"):
+            await _show_kw_list(query, int(query.data.split("_")[2]))
+        elif query.data.startswith("kw_view_"):
+            await _show_kw_card(query, int(query.data.split("_")[2]))
+        elif query.data.startswith("kw_type_"):
+            kw_id = int(query.data.split("_")[2])
+            pool = await database.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE bot_keywords SET match_type = CASE WHEN match_type = 'exact' "
+                    "THEN 'flexible' ELSE 'exact' END WHERE id = $1", kw_id
+                )
+            await _show_kw_card(query, kw_id)
+        elif query.data.startswith("kw_delask_"):
+            kw_id = int(query.data.split("_")[2])
+            row = await _get_kw(kw_id)
+            if not row:
+                await _show_kw_list(query, 0, prefix="❌ این کلمه دیگه وجود نداره.\n\n")
+            else:
+                kb = [[
+                    InlineKeyboardButton("✅ آره، حذف کن", callback_data=f"kw_delyes_{kw_id}"),
+                    InlineKeyboardButton("❌ نه", callback_data=f"kw_view_{kw_id}"),
+                ]]
+                await query.edit_message_text(
+                    f"🗑 کلمه‌ی <code>{_h(row['keyword'])}</code> حذف بشه؟",
+                    reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML",
+                )
+        elif query.data.startswith("kw_delyes_"):
+            kw_id = int(query.data.split("_")[2])
+            pool = await database.get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM bot_keywords WHERE id = $1", kw_id)
+            await _show_kw_list(query, 0, prefix="✅ کلمه حذف شد.\n\n")
+        elif query.data.startswith("kw_editres_"):
+            kw_id = int(query.data.split("_")[2])
+            row = await _get_kw(kw_id)
+            if not row:
+                await _show_kw_list(query, 0, prefix="❌ این کلمه دیگه وجود نداره.\n\n")
+                return ConversationHandler.END
+            context.user_data["edit_kw_id"] = kw_id
+            await query.edit_message_text(
+                f"✏️ پاسخ جدید برای <code>{_h(row['keyword'])}</code> رو بفرست\n"
+                "(یا /cancel برای انصراف):",
+                parse_mode="HTML",
+            )
+            return EDIT_KW_RESPONSE
+        elif query.data.startswith("kw_edittxt_"):
+            kw_id = int(query.data.split("_")[2])
+            row = await _get_kw(kw_id)
+            if not row:
+                await _show_kw_list(query, 0, prefix="❌ این کلمه دیگه وجود نداره.\n\n")
+                return ConversationHandler.END
+            context.user_data["edit_kw_id"] = kw_id
+            await query.edit_message_text(
+                f"🔤 کلمه‌ی فعلی: <code>{_h(row['keyword'])}</code>\n\n"
+                "کلمه‌ی جدید رو بفرست (یا /cancel برای انصراف):",
+                parse_mode="HTML",
+            )
+            return EDIT_KW_TEXT
+        elif query.data == "btn_add_kw":
+            await query.edit_message_text("📝 کلمه‌ی جدید رو بفرست (یا /cancel برای انصراف):")
             return ADD_KEYWORD
         elif query.data == "btn_add_co" and role == 'admin':
             await query.edit_message_text("🆔 Send the co-admin's numeric user ID:")
             return ADD_CO_ID
         elif query.data == "btn_list_kw":
-            await display_beautiful_keywords(query)
+            await _show_kw_list(query, 0)
         elif query.data == "btn_list_ad" and role == 'admin':
             await display_beautiful_admins(query)
         elif query.data == "btn_toggle_ai":
@@ -147,29 +215,8 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
                 return ConversationHandler.END
             context.user_data["target_group_id"] = gid
             context.user_data["target_group_title"] = row["title"]
-            # Re-show panel for this group
-            target_title = row["title"]
-            try:
-                ai_on = await database.is_ai_enabled(gid)
-            except Exception as e:
-                logger.error("panel: is_ai_enabled failed for %s: %s", gid, e)
-                ai_on = False
-            ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
-            header = f"🛠 **پنل مدیریت** — {_esc_md(str(target_title))}\n\n"
-            kb = [
-                [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
-                [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
-                [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai")],
-                [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
-            ]
-            if role == 'admin':
-                kb.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
-                kb.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
-                kb.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
-                kb.append([InlineKeyboardButton("📢 تنظیم کلمه صدا زدن بات", callback_data="btn_set_trigger")])
-            kb.append([InlineKeyboardButton("🔙 تغییر گروه", callback_data="btn_pick_group")])
             await query.edit_message_text(
-                header, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown"
+                _main_menu_header(row["title"]), reply_markup=_main_menu_markup(role), parse_mode="HTML"
             )
         elif query.data == "btn_edit_persona" and role == 'admin':
             current = await database.get_bot_persona()
@@ -222,39 +269,28 @@ async def inline_button_router(update: Update, context: ContextTypes.DEFAULT_TYP
             await _toggle_group_active(gid, query)
             await _show_submenu_for_group(query, gid, role)
             return ConversationHandler.END
-        elif query.data == "btn_back_global" and role == 'admin':
-            keyboard = [
-                [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
-                [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
-                [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
-            ]
-            if role == 'admin':
-                keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
-                keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
-                keyboard.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
-                keyboard.append([InlineKeyboardButton("📢 تنظیم کلمه صدا زدن بات", callback_data="btn_set_trigger")])
-                keyboard.append([InlineKeyboardButton("🏘 مدیریت گروه‌ها", callback_data="btn_list_groups")])
-            await query.edit_message_text(
-                "🛠 **پنل مدیریت (تنظیمات سراسری)**",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown",
-            )
         elif query.data == "btn_unmatched":
             top = await database.get_top_unmatched(limit=15)
             if not top:
-                await query.edit_message_text("ℹ️ هنوز پیام بی‌جوابی ثبت نشده.")
+                await query.edit_message_text(
+                    "ℹ️ هنوز پیام بی‌جوابی ثبت نشده.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 کلمات کلیدی", callback_data="kw_menu")]]),
+                )
                 return ConversationHandler.END
             lines = ["💡 **پیام‌های بی‌جواب پرتکرار:**\n"]
             for i, item in enumerate(top, 1):
                 txt = _esc_md(item['text'][:40])
                 lines.append(f"{i}. `{txt}` — {item['total']} بار")
-            await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
+            await query.edit_message_text(
+                "\n".join(lines), parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 کلمات کلیدی", callback_data="kw_menu")]]),
+            )
         elif query.data.startswith("del_"):
             kw_id = int(query.data.split("_")[1])
             pool = await database.get_pool()
             async with pool.acquire() as conn:
                 await conn.execute('DELETE FROM bot_keywords WHERE id = $1', kw_id)
-                await display_beautiful_keywords(query, "✅ Keyword deleted.\n\n")
+            await _show_kw_list(query, 0, prefix="✅ کلمه حذف شد.\n\n")
         elif query.data.startswith("remad_") and role == 'admin':
             co_id = int(query.data.split("_")[1])
             pool = await database.get_pool()
@@ -293,22 +329,9 @@ async def _show_group_picker(query):
 
 
 async def _show_global_panel(update, role: str):
-    """Show the global management panel in private chat."""
-    keyboard = [
-        [InlineKeyboardButton("➕ Add Keyword", callback_data="btn_add_kw")],
-        [InlineKeyboardButton("📋 List Keywords", callback_data="btn_list_kw")],
-        [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
-    ]
-    if role == 'admin':
-        keyboard.append([InlineKeyboardButton("👤 Add Co-Admin", callback_data="btn_add_co")])
-        keyboard.append([InlineKeyboardButton("👑 List Admins", callback_data="btn_list_ad")])
-        keyboard.append([InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
-        keyboard.append([InlineKeyboardButton("📢 تنظیم کلمه صدا زدن بات", callback_data="btn_set_trigger")])
-        keyboard.append([InlineKeyboardButton("🏘 مدیریت گروه‌ها", callback_data="btn_list_groups")])
+    """Show the main management menu in private chat."""
     await update.message.reply_text(
-        "🛠 **پنل مدیریت (تنظیمات سراسری)**",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
+        _main_menu_header(None), reply_markup=_main_menu_markup(role), parse_mode="HTML"
     )
     return ConversationHandler.END
 
@@ -353,10 +376,13 @@ async def _show_submenu_for_group(query, gid: int, role: str):
     is_active = row["is_active"]
     ai_on = row["ai_enabled"]
     active_label = "✅ فعال" if is_active else "⛔ غیرفعال"
-    ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
+    if config.AI_ENABLED:
+        ai_label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
+    else:
+        ai_label = "🔴 AI فعلاً خاموشه"
     header = f"🏘 **{_esc_md(str(gtitle))}**\nآیدی: `{gid}`\n\n{active_label} | {ai_label}\n\n"
     keyboard = [
-        [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai_pm")],
+        [InlineKeyboardButton(ai_label, callback_data="btn_toggle_ai_pm" if config.AI_ENABLED else "menu_ai_off")],
         [InlineKeyboardButton("⛔️ فعال/غیرفعال کردن گروه", callback_data="btn_toggle_active_pm")],
         [InlineKeyboardButton("🔙 بازگشت به لیست گروه‌ها", callback_data="btn_list_groups")],
     ]
@@ -372,22 +398,151 @@ def _esc_md(text: str) -> str:
     return text
 
 
-async def display_beautiful_keywords(query, prefix=""):
+def _h(text) -> str:
+    return html.escape(str(text or ""))
+
+
+def _type_label(match_type: str) -> str:
+    return "🔴 دقیق (Exact)" if match_type == "exact" else "🟢 منعطف (Flexible)"
+
+
+async def _get_kw(kw_id: int):
     pool = await database.get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch('SELECT id, keyword, response, match_type FROM bot_keywords ORDER BY id DESC')
-        if not rows:
-            await query.edit_message_text(f"{prefix}ℹ️ No keywords saved yet.")
-            return
-        text = f"{prefix}📋 **Keywords:**\n\n"
-        keyboard = []
-        for i, r in enumerate(rows, 1):
-            mt = "🔴" if r['match_type'] == 'exact' else "🟢"
-            kw_safe = _esc_md(r['keyword'])
-            res_safe = _esc_md(r['response'])
-            text += f"{i}. `{kw_safe}` = {res_safe} {mt}\n"
-            keyboard.append([InlineKeyboardButton(f"🗑 Delete {i} ({r['keyword'][:15]})", callback_data=f"del_{r['id']}")])
-        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        return await conn.fetchrow(
+            "SELECT id, keyword, response, match_type FROM bot_keywords WHERE id = $1", kw_id
+        )
+
+
+async def _send(target, text: str, markup=None):
+    """Edit the message if target is a CallbackQuery, otherwise reply to the Message."""
+    if hasattr(target, "edit_message_text"):
+        await target.edit_message_text(text, reply_markup=markup, parse_mode="HTML")
+    else:
+        await target.reply_text(text, reply_markup=markup, parse_mode="HTML")
+
+
+def _main_menu_header(title) -> str:
+    if title:
+        return f"🛠 <b>منوی مدیریت</b> — {_h(title)}"
+    return "🛠 <b>منوی مدیریت</b>"
+
+
+def _main_menu_markup(role: str) -> InlineKeyboardMarkup:
+    kb = [[InlineKeyboardButton("🔑 کلمات کلیدی", callback_data="kw_menu")]]
+    if not config.AI_ENABLED:
+        kb.append([InlineKeyboardButton("🤖 هوش مصنوعی (فعلاً خاموش)", callback_data="menu_ai_off")])
+    if role == "admin":
+        kb.append([InlineKeyboardButton("⚙️ سایر تنظیمات", callback_data="menu_other")])
+    kb.append([InlineKeyboardButton("❌ بستن", callback_data="btn_close")])
+    return InlineKeyboardMarkup(kb)
+
+
+async def _show_other_settings(query, role: str, chat):
+    """سایر تنظیمات (ادمین‌ها، کلمه‌ی صدا زدن، گروه‌ها و ...) — فقط برای ادمین اصلی."""
+    if role != "admin":
+        await query.edit_message_text("⛔ این بخش فقط برای ادمین اصلیه.")
+        return
+    kb = [
+        [InlineKeyboardButton("📢 کلمه صدا زدن بات", callback_data="btn_set_trigger")],
+        [InlineKeyboardButton("👤 افزودن ادمین", callback_data="btn_add_co"),
+         InlineKeyboardButton("👑 لیست ادمین‌ها", callback_data="btn_list_ad")],
+        [InlineKeyboardButton("🏘 مدیریت گروه‌ها", callback_data="btn_list_groups")],
+    ]
+    if config.AI_ENABLED:
+        kb.insert(0, [InlineKeyboardButton("🎭 تنظیم شخصیت/معرفی بات", callback_data="btn_edit_persona")])
+        if chat.type in ("group", "supergroup"):
+            try:
+                ai_on = await database.is_ai_enabled(chat.id)
+            except Exception:
+                ai_on = False
+            label = "🟢 AI روشن است (خاموش کن)" if ai_on else "🔴 AI خاموش است (روشن کن)"
+            kb.insert(0, [InlineKeyboardButton(label, callback_data="btn_toggle_ai")])
+    else:
+        kb.insert(0, [InlineKeyboardButton("🎭 تنظیم شخصیت (غیرفعال)", callback_data="menu_ai_off")])
+    kb.append([InlineKeyboardButton("🔙 منوی اصلی", callback_data="menu_main")])
+    await query.edit_message_text(
+        "⚙️ <b>سایر تنظیمات</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML"
+    )
+
+
+async def _show_kw_menu(target, prefix: str = ""):
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM bot_keywords")
+        exact = await conn.fetchval("SELECT COUNT(*) FROM bot_keywords WHERE match_type = 'exact'")
+    text = (
+        f"{prefix}🔑 <b>کلمات کلیدی</b>\n\n"
+        f"تعداد: {total}  (🟢 منعطف: {total - exact} | 🔴 دقیق: {exact})\n\n"
+        "🟢 منعطف: اگه پیام شامل کلمه باشه جواب میده\n"
+        "🔴 دقیق: فقط وقتی کل پیام همون کلمه باشه جواب میده"
+    )
+    kb = [
+        [InlineKeyboardButton("➕ افزودن کلمه", callback_data="btn_add_kw"),
+         InlineKeyboardButton("📋 لیست و ویرایش", callback_data="kw_list_0")],
+        [InlineKeyboardButton("💡 پیام‌های بی‌جواب پرتکرار", callback_data="btn_unmatched")],
+        [InlineKeyboardButton("🔙 منوی اصلی", callback_data="menu_main")],
+    ]
+    await _send(target, text, InlineKeyboardMarkup(kb))
+
+
+async def _show_kw_list(target, page: int = 0, prefix: str = ""):
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, keyword, response, match_type FROM bot_keywords ORDER BY id DESC"
+        )
+    back = [InlineKeyboardButton("🔙 کلمات کلیدی", callback_data="kw_menu")]
+    if not rows:
+        kb = [[InlineKeyboardButton("➕ افزودن کلمه", callback_data="btn_add_kw")], back]
+        await _send(target, f"{prefix}ℹ️ هنوز کلمه‌ای ثبت نشده.", InlineKeyboardMarkup(kb))
+        return
+    pages = max(1, math.ceil(len(rows) / KW_PAGE_SIZE))
+    page = max(0, min(page, pages - 1))
+    chunk = rows[page * KW_PAGE_SIZE:(page + 1) * KW_PAGE_SIZE]
+    kb = []
+    for r in chunk:
+        dot = "🔴" if r["match_type"] == "exact" else "🟢"
+        label = f"{dot} {r['keyword'][:20]} ← {r['response'][:16].replace(chr(10), ' ')}"
+        kb.append([InlineKeyboardButton(label, callback_data=f"kw_view_{r['id']}")])
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"kw_list_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"{page + 1}/{pages}", callback_data="kw_noop"))
+        if page < pages - 1:
+            nav.append(InlineKeyboardButton("بعدی ➡️", callback_data=f"kw_list_{page + 1}"))
+        kb.append(nav)
+    kb.append([InlineKeyboardButton("➕ افزودن کلمه", callback_data="btn_add_kw")])
+    kb.append(back)
+    await _send(
+        target,
+        f"{prefix}📋 <b>لیست کلمات</b> ({len(rows)} مورد)\nروی هر کلمه بزن تا ویرایشش کنی:",
+        InlineKeyboardMarkup(kb),
+    )
+
+
+async def _show_kw_card(target, kw_id: int, prefix: str = ""):
+    row = await _get_kw(kw_id)
+    if not row:
+        await _show_kw_list(target, 0, prefix="❌ این کلمه دیگه وجود نداره.\n\n")
+        return
+    response = row["response"]
+    if len(response) > 1500:
+        response = response[:1500] + "…"
+    text = (
+        f"{prefix}🔑 <b>کلمه:</b> <code>{_h(row['keyword'])}</code>\n\n"
+        f"💬 <b>پاسخ:</b>\n{_h(response)}\n\n"
+        f"🔁 <b>نوع:</b> {_type_label(row['match_type'])}"
+    )
+    kb = [
+        [InlineKeyboardButton("✏️ ویرایش پاسخ", callback_data=f"kw_editres_{kw_id}"),
+         InlineKeyboardButton("🔤 ویرایش کلمه", callback_data=f"kw_edittxt_{kw_id}")],
+        [InlineKeyboardButton("🔁 تغییر نوع (منعطف/دقیق)", callback_data=f"kw_type_{kw_id}")],
+        [InlineKeyboardButton("🗑 حذف", callback_data=f"kw_delask_{kw_id}")],
+        [InlineKeyboardButton("🔙 لیست کلمات", callback_data="kw_list_0")],
+    ]
+    await _send(target, text, InlineKeyboardMarkup(kb))
 
 
 async def display_beautiful_admins(query, prefix=""):
@@ -411,20 +566,20 @@ async def display_beautiful_admins(query, prefix=""):
 
 async def process_keyword(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_kw'] = database.normalize_persian(update.message.text.strip())
-    await update.message.reply_text("💬 Send the response for this keyword:")
+    await update.message.reply_text("💬 حالا پاسخ این کلمه رو بفرست:")
     return ADD_RESPONSE
 
 
 async def process_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['temp_res'] = update.message.text.strip()
     keyboard = [
-        [InlineKeyboardButton("🟢 Flexible (default)", callback_data="mtype_flexible")],
-        [InlineKeyboardButton("🔴 Exact match", callback_data="mtype_exact")]
+        [InlineKeyboardButton("🟢 منعطف (پیش‌فرض)", callback_data="mtype_flexible")],
+        [InlineKeyboardButton("🔴 دقیق", callback_data="mtype_exact")]
     ]
     await update.message.reply_text(
-        "Choose match type:\n\n"
-        "🟢 Flexible — matches variations (e.g. 'hello' matches 'helloo')\n"
-        "🔴 Exact — only the exact word matches",
+        "نوع تطبیق رو انتخاب کن:\n\n"
+        "🟢 منعطف — اگه پیام شامل کلمه باشه جواب میده\n"
+        "🔴 دقیق — فقط وقتی کل پیام همون کلمه باشه",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return ADD_MATCH_TYPE
@@ -437,7 +592,7 @@ async def process_match_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
     keyword = context.user_data.get('temp_kw')
     response = context.user_data.get('temp_res')
     if not keyword or not response:
-        await query.edit_message_text("❌ Session expired. Use /panel to start over.")
+        await query.edit_message_text("❌ زمان جلسه تموم شد. دوباره /menu بزن.")
         context.user_data.clear()
         return ConversationHandler.END
     pool = await database.get_pool()
@@ -447,9 +602,46 @@ async def process_match_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
             'ON CONFLICT (keyword) DO UPDATE SET response = $2, match_type = $3',
             keyword, response, match_type
         )
-        type_label = "exact" if match_type == "exact" else "flexible"
-        await query.edit_message_text(f"✅ Keyword saved! (type: {type_label})")
     context.user_data.clear()
+    await _show_kw_menu(query, prefix="✅ کلمه ذخیره شد.\n\n")
+    return ConversationHandler.END
+
+
+async def process_edit_kw_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kw_id = context.user_data.get("edit_kw_id")
+    new_text = (update.message.text or "").strip()
+    if not kw_id:
+        await update.message.reply_text("❌ زمان جلسه تموم شد. دوباره /menu بزن.")
+        return ConversationHandler.END
+    if not new_text:
+        await update.message.reply_text("❌ پاسخ نمی‌تونه خالی باشه. دوباره بفرست:")
+        return EDIT_KW_RESPONSE
+    pool = await database.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE bot_keywords SET response = $1 WHERE id = $2", new_text, kw_id)
+    context.user_data.pop("edit_kw_id", None)
+    await _show_kw_card(update.message, kw_id, prefix="✅ پاسخ ویرایش شد.\n\n")
+    return ConversationHandler.END
+
+
+async def process_edit_kw_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kw_id = context.user_data.get("edit_kw_id")
+    new_kw = database.normalize_persian((update.message.text or "").strip())
+    if not kw_id:
+        await update.message.reply_text("❌ زمان جلسه تموم شد. دوباره /menu بزن.")
+        return ConversationHandler.END
+    if not new_kw:
+        await update.message.reply_text("❌ کلمه نمی‌تونه خالی باشه. دوباره بفرست:")
+        return EDIT_KW_TEXT
+    pool = await database.get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("UPDATE bot_keywords SET keyword = $1 WHERE id = $2", new_kw, kw_id)
+    except asyncpg.UniqueViolationError:
+        await update.message.reply_text("⚠️ این کلمه از قبل ثبت شده. یه کلمه‌ی دیگه بفرست (یا /cancel):")
+        return EDIT_KW_TEXT
+    context.user_data.pop("edit_kw_id", None)
+    await _show_kw_card(update.message, kw_id, prefix="✅ کلمه ویرایش شد.\n\n")
     return ConversationHandler.END
 
 
@@ -610,7 +802,9 @@ debug_ai_handler = CommandHandler("debug_ai", debug_ai_command)
 panel_conversation = ConversationHandler(
     entry_points=[
         CommandHandler("panel", panel_command),
-        CallbackQueryHandler(inline_button_router, pattern="^(btn_|del_|remad_|pmgrp_)")
+        CommandHandler("menu", panel_command),
+        MessageHandler(filters.TEXT & ~filters.COMMAND & filters.Regex(MENU_PHRASE_REGEX), panel_command),
+        CallbackQueryHandler(inline_button_router, pattern="^(btn_|del_|remad_|pmgrp_|kw_|menu_)")
     ],
     states={
         ADD_KEYWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_keyword)],
@@ -620,6 +814,8 @@ panel_conversation = ConversationHandler(
         ADD_CO_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_co_admin_name)],
         EDIT_PERSONA: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_persona)],
         SET_TRIGGER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_trigger)],
+        EDIT_KW_RESPONSE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit_kw_response)],
+        EDIT_KW_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_edit_kw_text)],
         ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, conversation_timeout_handler)],
     },
     fallbacks=[CommandHandler("cancel", cancel_action)],
