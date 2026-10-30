@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Othello · 2P</title>
+<title>اتللو · دونفره</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'Segoe UI',system-ui,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;user-select:none}
+body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'Vazirmatn','Segoe UI',system-ui,tahoma,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;user-select:none}
 .container{text-align:center;width:100%;max-width:480px;padding:8px;position:relative}
 .header{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 8px}
 .header h1{font-size:1.1rem;font-weight:800;background:linear-gradient(135deg,#4ade80,#22c55e);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -16,8 +16,8 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .picker-overlay{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:rgba(10,10,21,.92);backdrop-filter:blur(6px);z-index:10;padding:20px}
 .picker-overlay.hidden{display:none}
 .picker-overlay h2{font-size:1.3rem;margin-bottom:12px;color:#4ade80}
-.picker-overlay p{color:#888;font-size:.85rem;margin-bottom:16px}
-.picker-btn{display:block;width:100%;max-width:240px;padding:12px;margin:6px 0;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all .2s}
+.picker-overlay p{color:#aaa;font-size:.85rem;margin-bottom:16px}
+.picker-btn{display:block;width:100%;max-width:240px;padding:12px;margin:6px 0;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit}
 .picker-btn.black{background:linear-gradient(135deg,#555,#111);color:#fff}
 .picker-btn.white{background:linear-gradient(135deg,#e0e0e0,#fff);color:#111}
 .picker-btn:hover{transform:scale(1.03)}
@@ -28,7 +28,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .overlay h2{font-size:1.5rem;margin-bottom:4px;color:#4ade80}
 .overlay p{color:#888;font-size:.85rem;margin-bottom:12px}
 .btn-group{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit}
 .btn-primary{background:linear-gradient(135deg,#4ade80,#22c55e);color:#0a0a15;box-shadow:0 4px 15px rgba(74,222,128,.3)}
 .btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.1)}
 .score-box{display:flex;justify-content:space-around;padding:6px 0 2px;font-size:.85rem}
@@ -36,7 +36,7 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .score-box .dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.2)}
 .score-box .dot.black{background:#fff;border-color:#888}
 .score-box .dot.white{background:#4ade80;border-color:#4ade80}
-.btn-resign{margin-top:8px;padding:8px 20px;border:1px solid rgba(255,107,107,.45);border-radius:10px;background:rgba(255,107,107,.1);color:#ff8a8a;font-size:.8rem;font-weight:700;cursor:pointer;transition:all .2s}
+.btn-resign{margin-top:8px;padding:8px 20px;border:1px solid rgba(255,107,107,.45);border-radius:10px;background:rgba(255,107,107,.1);color:#ff8a8a;font-size:.8rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:inherit}
 .btn-resign:active{transform:scale(.96)}
 .btn-resign:disabled{opacity:.5;cursor:default}
 .spectator-badge{display:inline-block;background:rgba(255,193,7,.15);color:#ffc107;padding:2px 10px;border-radius:999px;font-size:.7rem;font-weight:700}
@@ -54,12 +54,12 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 .chat-msg .author{font-weight:700;font-size:.7rem;opacity:.7;margin-bottom:1px}
 .chat-msg .time{font-size:.6rem;opacity:.4;margin-top:2px;text-align:right}
 .chat-input-wrap{display:flex;gap:8px;padding:8px 14px 12px;border-top:1px solid rgba(255,255,255,.06);flex-shrink:0}
-.chat-input{flex:1;background:rgba(255,255,255,.06);border:none;border-radius:10px;padding:10px 14px;color:#fff;font-size:.85rem;outline:none}
-.chat-input::placeholder{color:#555}
-.chat-send{background:linear-gradient(135deg,#4ade80,#22c55e);border:none;border-radius:10px;color:#0a0a15;font-size:.85rem;font-weight:700;padding:0 16px;cursor:pointer}
+.chat-input{flex:1;background:rgba(255,255,255,.06);border:none;border-radius:10px;padding:10px 14px;color:#fff;font-size:.85rem;outline:none;font-family:inherit}
+.chat-input::placeholder{color:#666}
+.chat-send{background:linear-gradient(135deg,#4ade80,#22c55e);border:none;border-radius:10px;color:#0a0a15;font-size:.85rem;font-weight:700;padding:0 16px;cursor:pointer;font-family:inherit}
 .chat-send:active{transform:scale(.95)}
 .chat-new-badge{position:absolute;top:-4px;right:-4px;background:#ff6b6b;color:#fff;font-size:.6rem;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;display:none}
-.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(74,222,128,.9);color:#0a0a15;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(74,222,128,.9);color:#0a0a15;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20;font-family:inherit}
 .toast.show{opacity:1}
 .timer-badge{font-size:.85rem;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.08);color:#4ade80;border:1px solid rgba(74,222,128,.3);display:none;align-items:center;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums;transition:all .2s}
 .timer-badge.warning{background:rgba(255,183,3,.15);color:#ffb703;border-color:rgba(255,183,3,.4)}
@@ -71,45 +71,45 @@ body{background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;font-family:'
 <body>
 <div class="container">
   <div class="header">
-    <h1>⚫ OTHELLO ⚪</h1>
-    <div class="status" id="statusBar">Loading...</div>
+    <h1>⚫ اتللو ⚪</h1>
+    <div class="status" id="statusBar">در حال بارگذاری...</div>
     <div class="timer-badge" id="timerBadge">⏱ 60s</div>
   </div>
   <div class="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
     <div class="picker-overlay" id="pickerOverlay">
-      <h2>⚫ Who are you?</h2>
-      <p>Select your name to play, or watch as spectator:</p>
-      <button class="picker-btn black" id="pickBlack">● Play as Black</button>
-      <button class="picker-btn white" id="pickWhite">○ Play as White</button>
-      <button class="picker-btn spec" id="pickSpec">👀 Just Watching</button>
+      <h2>⚫ شما کدام بازیکن هستید؟</h2>
+      <p>نام خود را برای بازی انتخاب کنید یا به عنوان تماشاگر نظاره‌گر باشید:</p>
+      <button class="picker-btn black" id="pickBlack">● بازی به عنوان سیاه</button>
+      <button class="picker-btn white" id="pickWhite">○ بازی به عنوان سفید</button>
+      <button class="picker-btn spec" id="pickSpec">👀 فقط تماشا (تماشاگر)</button>
     </div>
     <div class="overlay hidden" id="gameOverOverlay">
-      <h2 id="winnerText">🏆 Winner!</h2>
+      <h2 id="winnerText">🏆 پایان بازی</h2>
       <p style="font-size:2.2rem;font-weight:800;margin:4px 0" id="scoreText">● 0 — ⚪ 0</p>
       <p id="resultText" style="color:#888;font-size:.85rem"></p>
       <div class="btn-group">
-        <button class="btn btn-secondary" id="homeBtn">✕ CLOSE</button>
+        <button class="btn btn-secondary" id="homeBtn">✕ بستن</button>
       </div>
     </div>
   </div>
   <div class="score-box">
-    <div><span class="dot black"></span> Black: <span id="blackScore">2</span></div>
-    <div><span class="dot white"></span> White: <span id="whiteScore">2</span></div>
+    <div><span class="dot black"></span> سیاه: <span id="blackScore">2</span></div>
+    <div><span class="dot white"></span> سفید: <span id="whiteScore">2</span></div>
   </div>
-  <div id="playerInfo" style="font-size:.7rem;color:#555;margin-top:4px"></div>
-  <button class="btn-resign" id="resignBtn" style="display:none">🏳️ Resign · تسلیم</button>
+  <div id="playerInfo" style="font-size:.7rem;color:#777;margin-top:4px"></div>
+  <button class="btn-resign" id="resignBtn" style="display:none">🏳️ تسلیم شدن</button>
 </div>
 <button class="chat-toggle" id="chatToggle">💬<span class="chat-new-badge" id="chatBadge">1</span></button>
 <div class="chat-panel" id="chatPanel">
   <div class="chat-header">
-    <span>💬 Game Chat</span>
+    <span>💬 گفتگوی بازی</span>
     <button class="chat-close" id="chatClose">✕</button>
   </div>
   <div class="chat-msgs" id="chatMsgs"></div>
   <div class="chat-input-wrap" id="chatInputWrap" style="display:none">
-    <input class="chat-input" id="chatInput" placeholder="Type a message..." maxlength="500">
-    <button class="chat-send" id="chatSend">Send</button>
+    <input class="chat-input" id="chatInput" placeholder="پیام خود را بنویسید..." maxlength="500">
+    <button class="chat-send" id="chatSend">ارسال</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -287,7 +287,7 @@ canvas.addEventListener('touchstart',e=>{
 
 // ---- Make move ----
 async function doMove(r,c){
-  if(!myPlayerId){showToast('❌ Select your slot first');return;}
+  if(!myPlayerId){showToast('❌ ابتدا جایگاه خود را مشخص کنید');return;}
   try{
     const res=await fetch('/api/othello/move',{
       method:'POST',
@@ -308,26 +308,26 @@ function applyState(s){
     stopTimerTicker();
     const w=s.winner;
     if(w==='cancelled'||s.end_reason==='timeout_cancelled'){
-      statusBar.textContent='⏱ Match cancelled';
-      winnerText.textContent='⏱ Match Cancelled';
+      statusBar.textContent='⏱ مسابقه لغو شد';
+      winnerText.textContent='⏱ مسابقه لغو شد';
       scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
-      resultText.textContent='Game timed out (no moves played)';
+      resultText.textContent='به دلیل عدم انجام حرکت بازی لغو شد';
     }else if(w==='draw'){
-      statusBar.textContent='🤝 Draw! '+s.black_score+' - '+s.white_score;
-      winnerText.textContent='🤝 Draw!';
+      statusBar.textContent='🤝 مساوی! '+s.black_score+' - '+s.white_score;
+      winnerText.textContent='🤝 مساوی!';
       scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
       resultText.textContent='';
     }else{
       const wName=w==='black'?s.black?.name:s.white?.name;
       const isMe=!isSpectator&&myColor===(w==='black'?'b':'w');
-      winnerText.textContent=isMe?'🏆 You Win!':'🏆 '+wName+' Wins!';
+      winnerText.textContent=isMe?'🏆 شما برنده شدید!':'🏆 '+(wName||'حریف')+' برنده شد!';
       scoreText.textContent='● '+s.black_score+' — ⚪ '+s.white_score;
       if(s.end_reason==='resign'){
         const loserName=w==='black'?s.white?.name:s.black?.name;
-        resultText.textContent='🏳️ '+(loserName||'Opponent')+' resigned';
+        resultText.textContent='🏳️ '+(loserName||'حریف')+' تسلیم شد';
       }else if(s.end_reason==='timeout'){
         const loserName=w==='black'?s.white?.name:s.black?.name;
-        resultText.textContent='⏰ '+(loserName||'Opponent')+' timed out (forfeit)';
+        resultText.textContent='⏰ زمان '+(loserName||'حریف')+' به پایان رسید (باخت)';
       }else{resultText.textContent='';}
     }
     updateResignBtn();
@@ -336,9 +336,10 @@ function applyState(s){
     return;
   }
   const turnName=s.turn==='b'?s.black?.name:s.white?.name;
-  statusBar.innerHTML='Turn: <b>'+turnName+'</b> ('+(s.turn==='b'?'●':'○')+')'+
-    (isSpectator?' <span class="spectator-badge">👀 Watching</span>':'');
-  playerInfo.textContent=(s.black?.name||'?')+' (●) vs '+(s.white?.name||'?')+' (○)';
+  const turnColor=s.turn==='b'?'● سیاه':'○ سفید';
+  statusBar.innerHTML='نوبت: <b>'+turnName+'</b> ('+turnColor+')'+
+    (isSpectator?' <span class="spectator-badge">👀 تماشاگر</span>':'');
+  playerInfo.textContent=(s.black?.name||'سیاه')+' (●) در برابر '+(s.white?.name||'سفید')+' (○)';
   if(typeof s.time_left==='number'){
     startTimerTicker(s.time_left);
   }
@@ -365,7 +366,7 @@ function askConfirm(msg,cb){
 }
 resignBtn.addEventListener('click',()=>{
   if(!canResign())return;
-  askConfirm('Resign this game? Your opponent will win.\nتسلیم می‌شوی؟ حریف برنده می‌شود.',async ok=>{
+  askConfirm('آیا مایل به تسلیم شدن هستید؟ حریف برنده بازی خواهد شد.',async ok=>{
     if(!ok)return;
     resignBtn.disabled=true;
     try{
@@ -375,9 +376,9 @@ resignBtn.addEventListener('click',()=>{
         body:JSON.stringify({game_id:gameId})
       });
       const data=await res.json();
-      if(res.ok&&data&&data.board){applyState(data);showToast('🏳️ You resigned');}
-      else{showToast('❌ Could not resign');}
-    }catch(e){showToast('❌ Network error');}
+      if(res.ok&&data&&data.board){applyState(data);showToast('🏳️ شما تسلیم شدید');}
+      else{showToast('❌ تسلیم شدن امکان‌پذیر نبود');}
+    }catch(e){showToast('❌ خطای ارتباط با سرور');}
     resignBtn.disabled=false;
   });
 });
@@ -450,10 +451,10 @@ chatSend.addEventListener('click',sendChat);
 // ---- Claim a slot from picker ----
 // This is the key function: it sets myPlayerId to the backend-stored player ID for that slot
 function claimSlot(slotColor){
-  if(!state){showToast('⏳ Game loading...');return;}
+  if(!state){showToast('⏳ در حال دریافت اطلاعات...');return;}
   const slotKey=slotColor==='b'?'black':'white';
   const player=state[slotKey];
-  if(!player){showToast('❌ Slot not available');return;}
+  if(!player){showToast('❌ این جایگاه در دسترس نیست');return;}
 
   // myPlayerId MUST match what the backend stored for this slot
   myPlayerId=String(player.id);
@@ -463,22 +464,22 @@ function claimSlot(slotColor){
 
   pickerOverlay.classList.add('hidden');
   if(chatInputWrap)chatInputWrap.style.display='flex';
-  showToast('▶ Playing as '+(slotColor==='b'?'⚫ Black':'⚪ White'));
+  showToast('▶ بازی در نقش '+(slotColor==='b'?'⚫ سیاه':'⚪ سفید'));
   applyState(state);  // re-render with move hints
 }
 
 // ---- Init ----
 async function init(){
-  if(!gameId){statusBar.textContent='❌ No game ID';return;}
+  if(!gameId){statusBar.textContent='❌ شناسه بازی یافت نشد';return;}
   let data;
   try{
     const res=await fetch('/api/othello/state?game_id='+gameId);
     data=await res.json();
   }catch(e){
-    statusBar.textContent='❌ Failed to load game';
+    statusBar.textContent='❌ خطا در بارگذاری بازی';
     return;
   }
-  if(!data||!data.board){statusBar.textContent='❌ Game not found';return;}
+  if(!data||!data.board){statusBar.textContent='❌ بازی پیدا نشد';return;}
   state=data;
 
   // Try Telegram Mini App auto-identify using strict string comparison
@@ -505,8 +506,8 @@ async function init(){
   }
 
   // No auto-match → show picker with the actual player names on the buttons
-  pickBlack.textContent='● '+(data.black?.name||'Black');
-  pickWhite.textContent='○ '+(data.white?.name||'White');
+  pickBlack.textContent='● '+(data.black?.name||'سیاه');
+  pickWhite.textContent='○ '+(data.white?.name||'سفید');
   pickerOverlay.classList.remove('hidden');
   applyState(data);
   startPolling();
@@ -519,7 +520,7 @@ pickWhite.addEventListener('click',()=>claimSlot('w'));
 pickSpec.addEventListener('click',()=>{
   isSpectator=true;myPlayerId=null;myColor=null;myName='Spectator';
   pickerOverlay.classList.add('hidden');
-  showToast('👀 Watching');
+  showToast('👀 در حال تماشا');
   applyState(state);
 });
 homeBtn.addEventListener('click',()=>{stopPolling();stopTimerTicker();gameOverOverlay.classList.add('hidden');});

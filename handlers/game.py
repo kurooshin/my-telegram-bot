@@ -22,7 +22,7 @@ async def _lobby_timeout(chat_id, bot):
             await database.delete_othello_lobby(chat_id)
             await bot.send_message(
                 chat_id=chat_id,
-                text="⏰ **Time up!** Not enough players joined. Lobby closed.\n\nUse /game or /tello to start a new one."
+                text="⏰ **زمان به پایان رسید!** بازیکن دیگری اضافه نشد و لابی بسته شد.\n\nبرای شروع دوباره از دستور /game یا /tello استفاده کنید."
             )
     except asyncio.CancelledError:
         pass
@@ -58,9 +58,9 @@ def snake_button(chat_type: str) -> dict:
     url = f"{config.WEBHOOK_URL}/game"
     if chat_type in ("group", "supergroup"):
         if BOT_USERNAME:
-            return {"text": "🐍 Snake Pro", "url": f"https://t.me/{BOT_USERNAME}?start=snake"}
-        return {"text": "🐍 Snake Pro", "url": url}
-    return {"text": "🐍 Snake Pro", "web_app": {"url": url}}
+            return {"text": "🐍 بازی مار (Snake Pro)", "url": f"https://t.me/{BOT_USERNAME}?start=snake"}
+        return {"text": "🐍 بازی مار (Snake Pro)", "url": url}
+    return {"text": "🐍 بازی مار (Snake Pro)", "web_app": {"url": url}}
 
 
 def lobby_markup(chat_id: int | None = None):
@@ -74,24 +74,24 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         gid = parts[1][8:]
         g = othello_game.games.get(gid)
         if not g:
-            await update.message.reply_text("❌ Game not found or already finished.")
+            await update.message.reply_text("❌ بازی پیدا نشد یا قبلاً به پایان رسیده است.")
             return
         url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
-        btn = game_button("⚫ Play Othello", url, True, "private")
+        btn = game_button("⚫ ورود به بازی اتللو", url, True, "private")
         await update.message.reply_text(
-            f"⚫ **Othello Game**\n\n{g['black']['name']} (●) vs {g['white']['name']} (○)\n\nClick below to launch:",
+            f"⚫ **بازی اتللو**\n\n{g['black']['name']} (●) در برابر {g['white']['name']} (○)\n\nجهت شروع روی دکمه زیر بزنید:",
             parse_mode="Markdown",
             api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
         )
     elif len(parts) >= 2 and parts[1] == "snake":
         await update.message.reply_text(
-            "🐍 **Snake Pro**\n\nTap below to play — your best score is saved on the leaderboard under your Telegram account.",
+            "🐍 **بازی مار (Snake Pro)**\n\nبرای شروع روی دکمه زیر ضربه بزنید — رکورد شما در جدول برترین‌ها ذخیره خواهد شد.",
             parse_mode="Markdown",
             api_kwargs={"reply_markup": {"inline_keyboard": [[snake_button("private")]]}}
         )
     else:
         await update.message.reply_text(
-            "🎮 **Game Hub**\n\nUse /game to see available games, or /tello to join Othello!",
+            "🎮 **منوی بازی‌ها**\n\nبرای دیدن لیست بازی‌ها از /game یا برای شروع اتللو از /tello استفاده کنید!",
             parse_mode="Markdown"
         )
 
@@ -101,21 +101,21 @@ async def game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ct = update.effective_chat.type
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="🎮 **Game Hub**\n\nPick a game to play:",
+            text="🎮 **منوی بازی‌ها**\n\nبازی مورد نظر خود را انتخاب کنید:",
             parse_mode="Markdown",
             api_kwargs={
                 "reply_markup": {
                     "inline_keyboard": [[
                         snake_button(ct)
                     ], [
-                        {"text": "⚫⚪ Othello Match Arena", "callback_data": "oth_hub"}
+                        {"text": "⚫⚪ میدان مسابقه اتللو", "callback_data": "oth_hub"}
                     ]]
                 }
             }
         )
     except Exception as e:
         logger.error(f"Game command error: {e}")
-        await update.message.reply_text("❌ Could not open game hub. Try again later.")
+        await update.message.reply_text("❌ باز کردن منوی بازی‌ها امکان‌پذیر نبود. لطفاً بعداً دوباره امتحان کنید.")
 
 
 async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,9 +126,9 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for gid, g in list(othello_game.games.items()):
             if not g['game_over'] and (g['black']['id'] == uid or g['white']['id'] == uid):
                 url = f"{config.WEBHOOK_URL}/tello?game_id={gid}"
-                btn = game_button("⚫ Resume Othello Game", url, True, update.effective_chat.type)
+                btn = game_button("⚫ ادامه بازی اتللو", url, True, update.effective_chat.type)
                 await context.bot.send_message(
-                    chat_id=chat_id, text="⚫ You have an active Othello game!",
+                    chat_id=chat_id, text="⚫ شما یک بازی ناتمام اتللو دارید!",
                     api_kwargs={"reply_markup": {"inline_keyboard": [[btn]]}}
                 )
                 return
@@ -142,7 +142,7 @@ async def tello_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"Tello command error: {e}")
-        await update.message.reply_text("❌ Could not create lobby. Try again later.")
+        await update.message.reply_text("❌ ایجاد لابی امکان‌پذیر نبود. لطفاً بعداً دوباره امتحان کنید.")
 
 
 async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -185,7 +185,8 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Joined successfully — answer with a toast and update the lobby message
         slot_emoji = "⚫" if target_slot == "black" else "⚪"
-        await query.answer(f"{slot_emoji} You joined as {target_slot.title()}!", show_alert=False)
+        slot_fa = "سیاه (●)" if target_slot == "black" else "سفید (○)"
+        await query.answer(f"{slot_emoji} شما جایگاه {slot_fa} را انتخاب کردید!", show_alert=False)
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -201,25 +202,25 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "oth_vs_ai":
         gid = await othello_game.create_ai_game(uid, name, 'b')
-        await query.answer("🤖 Starting match against Othello Bot!", show_alert=True)
+        await query.answer("🤖 در حال شروع مسابقه با ربات هوش مصنوعی!", show_alert=True)
         await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
 
     elif data == "oth_quick":
         gid, opp = await othello_game.join_quick_match(uid, name, chat_id)
         if gid:
-            await query.answer("⚡ Match Found! Starting game...", show_alert=True)
+            await query.answer("⚡ حریف پیدا شد! در حال شروع بازی...", show_alert=True)
             await send_match_started_card(context.bot, chat_id, gid, update.effective_chat.type)
             if opp and opp.get('chat_id') and opp['chat_id'] != chat_id:
                 await send_match_started_card(context.bot, opp['chat_id'], gid, 'private')
         else:
-            await query.answer("⚡ Added to queue! You'll be notified when matched.", show_alert=True)
+            await query.answer("⚡ در صف انتظار قرار گرفتید! به محض پیدا شدن حریف مطلع می‌شوید.", show_alert=True)
 
     elif data == "oth_leave":
         ok, err = othello_game.lobby_remove(chat_id, uid)
         if not ok:
-            await query.answer(err or "You are not in this lobby.", show_alert=True)
+            await query.answer(err or "شما در این لابی حضور ندارید.", show_alert=True)
             return
-        await query.answer("🚪 Left the lobby.")
+        await query.answer("🚪 از لابی خارج شدید.")
         text = othello_game.lobby_text(chat_id)
         try:
             await query.edit_message_text(
@@ -230,13 +231,13 @@ async def othello_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     elif data == "oth_close":
-        await query.answer("🚪 Lobby closed.")
+        await query.answer("🚪 لابی بسته شد.")
         if chat_id in othello_game.lobbies:
             del othello_game.lobbies[chat_id]
         cancel_lobby_timeout(chat_id)
         await database.delete_othello_lobby(chat_id)
         try:
-            await query.edit_message_text("🚪 **Lobby closed.** Use /tello to open a new match arena.", parse_mode="Markdown")
+            await query.edit_message_text("🚪 **لابی بسته شد.** برای باز کردن میدان مسابقه جدید از /tello استفاده کنید.", parse_mode="Markdown")
         except Exception:
             pass
 
@@ -263,24 +264,24 @@ async def send_match_started_card(bot, chat_id: int, gid: str, chat_type: str = 
     # - group/supergroup → url deep-link (opens bot PM first, then Mini App)
     is_private = chat_type == "private"
     if is_private:
-        play_btn = {"text": "⚫ Open Game (Mini App)", "web_app": {"url": web_url}}
+        play_btn = {"text": "⚫ ورود به بازی (مینی‌اپ)", "web_app": {"url": web_url}}
     else:
         # In groups web_app is not allowed — send deep link that opens the Mini App in PM
-        play_btn = {"text": "⚫ Open Game", "url": deep_link}
+        play_btn = {"text": "⚫ ورود به بازی", "url": deep_link}
 
     buttons = [[play_btn]]
     # In private, also offer a plain URL fallback for browsers without Mini App support
     if is_private:
-        buttons[0].append({"text": "🔗 Open in Browser", "url": web_url})
+        buttons[0].append({"text": "🔗 باز کردن در مرورگر", "url": web_url})
 
     await bot.send_message(
         chat_id=chat_id,
         text=(
-            f"🎉 **Othello Match Started!**\n\n"
-            f"⚫ **Black**: {g['black']['name']}\n"
-            f"⚪ **White**: {g['white']['name']}\n\n"
-            + ("Tap the button to open the game!" if is_private
-               else "Tap **Open Game** — it will open in your private chat with the bot.")
+            f"🎉 **مسابقه اتللو آغاز شد!**\n\n"
+            f"⚫ **سیاه**: {g['black']['name']}\n"
+            f"⚪ **سفید**: {g['white']['name']}\n\n"
+            + ("برای اجرای بازی روی دکمه زیر ضربه بزنید!" if is_private
+               else "روی **ورود به بازی** ضربه بزنید — بازی در گفتگوی خصوصی شما با ربات اجرا خواهد شد.")
         ),
         parse_mode="Markdown",
         api_kwargs={"reply_markup": {"inline_keyboard": buttons}}
@@ -291,17 +292,17 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         rows = await database.get_leaderboard()
         if not rows:
-            await update.message.reply_text("🏆 No scores recorded yet. Play Snake and be the first!")
+            await update.message.reply_text("🏆 هنوز امتیازی ثبت نشده است. اولین نفری باشید که بازی می‌کند!")
             return
         me_id = str(update.effective_user.id) if update.effective_user else None
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
 
         def line(rank, name, score, is_me):
             label = medals.get(rank, f"<b>{rank}.</b>")
-            mark = "  ◀ you" if is_me else ""
-            return f"{label} <b>{html.escape((name or 'Player')[:20])}</b> — <code>{score}</code> pts{mark}\n"
+            mark = "  ◀ شما" if is_me else ""
+            return f"{label} <b>{html.escape((name or 'بازیکن')[:20])}</b> — <code>{score}</code> امتیاز{mark}\n"
 
-        text = "🏆 <b>Snake Pro Leaderboard</b>\n\n"
+        text = "🏆 <b>جدول برترین‌های بازی مار (Snake Pro)</b>\n\n"
         in_top = False
         for r in rows:
             is_me = r['user_id'] == me_id
@@ -316,7 +317,7 @@ async def leaderboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Leaderboard error: {e}")
-        await update.message.reply_text("❌ Could not load leaderboard.")
+        await update.message.reply_text("❌ دریافت جدول برترین‌ها امکان‌پذیر نبود.")
 
 
 game_handler = CommandHandler("game", game_command)

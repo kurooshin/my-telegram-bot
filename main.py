@@ -289,12 +289,12 @@ async def main():
 
     # Set bot commands
     commands = [
-        ("start", "Open the game hub"),
-        ("game", "Game Hub — Snake & Othello"),
-        ("tello", "Join Othello lobby"),
-        ("leaderboard", "Snake leaderboard"),
+        ("start", "ورود و شروع ربات"),
+        ("game", "منوی بازی‌ها (ماربازی و اتللو)"),
+        ("tello", "شروع یا پیوستن به لابی اتللو"),
+        ("leaderboard", "جدول رده‌بندی برترین‌ها"),
         ("menu", "منوی مدیریت"),
-        ("panel", "Admin panel"),
+        ("panel", "پنل مدیریت ربات"),
         ("suggest", "پیشنهاد پاسخ هوشمند به سبک تو"),
         ("forget_me", "حذف کامل داده‌های ذخیره‌شده"),
         ("privacy", "توضیح حریم خصوصی"),

@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<title>Snake Pro</title>
+<title>ماربازی حرفه‌ای</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15 100%);color:#fff;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15 100%);color:#fff;font-family:'Vazirmatn','Segoe UI',system-ui,tahoma,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100dvh;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
 .container{text-align:center;width:100%;max-width:480px;padding:8px;position:relative}
 .header{display:flex;justify-content:space-between;align-items:center;padding:4px 8px 8px}
 .header h1{font-size:1.2rem;background:linear-gradient(135deg,#e94560,#ff6b81);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-weight:800}
@@ -19,7 +19,7 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 .overlay h2{font-size:1.6rem;margin-bottom:4px;background:linear-gradient(135deg,#e94560,#ff6b81);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .overlay p{color:#888;font-size:.85rem;margin-bottom:12px}
 .btn-group{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px}
+.btn{padding:8px 24px;border:none;border-radius:10px;font-size:.85rem;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.3px;font-family:inherit}
 .btn-primary{background:linear-gradient(135deg,#e94560,#ff6b81);color:#fff;box-shadow:0 4px 15px rgba(233,69,96,.3)}
 .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(233,69,96,.4)}
 .btn-secondary{background:rgba(255,255,255,.08);color:#ccc;border:1px solid rgba(255,255,255,.1)}
@@ -37,7 +37,7 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 .lb-row.me{background:rgba(233,69,96,.15);border-radius:6px}
 .lb-me{margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.12);text-align:center;font-size:.75rem;color:#ccc}
 .lb-note{text-align:center;color:#888;font-size:.7rem;margin-top:6px}
-.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.9);color:#fff;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20}
+.toast{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(233,69,96,.9);color:#fff;padding:8px 20px;border-radius:10px;font-size:.8rem;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:20;font-family:inherit}
 .toast.show{opacity:1}
 @media(max-width:420px){.header h1{font-size:1rem}.stats{font-size:.75rem;gap:10px;padding:3px 10px}.overlay h2{font-size:1.3rem}}
 </style>
@@ -45,34 +45,34 @@ body{background:radial-gradient(ellipse at center,#0f0f23 0%,#1a1a2e 50%,#0a0a15
 <body>
 <div class="container">
   <div class="header">
-    <h1>🐍 SNAKE PRO</h1>
+    <h1>🐍 ماربازی حرفه‌ای</h1>
     <div class="stats">
-      <div>Score <span id="scoreDisplay">0</span></div>
-      <div>Best <span id="bestDisplay">0</span></div>
+      <div>امتیاز <span id="scoreDisplay">0</span></div>
+      <div>رکورد <span id="bestDisplay">0</span></div>
     </div>
   </div>
   <div class="canvas-wrap">
     <canvas id="gameCanvas"></canvas>
     <div class="overlay" id="startOverlay">
-      <h2>🐍 Snake Pro</h2>
-      <p>WASD · Arrows · Swipe</p>
-      <button class="btn btn-primary" id="playBtn">▶ PLAY</button>
+      <h2>🐍 بازی مار</h2>
+      <p>کلیدهای جهت‌نما · لمس و کشیدن</p>
+      <button class="btn btn-primary" id="playBtn">▶ شروع بازی</button>
     </div>
     <div class="overlay hidden" id="gameOverOverlay">
-      <h2>💀 Game Over</h2>
+      <h2>💀 پایان بازی</h2>
       <p style="font-size:2.5rem;font-weight:800;margin:0" id="finalScore">0</p>
-      <p id="highScoreMsg" style="color:#4ade80;font-size:.9rem;display:none">🏆 New High Score!</p>
+      <p id="highScoreMsg" style="color:#4ade80;font-size:.9rem;display:none">🏆 رکورد جدید ثبت شد!</p>
       <p id="speedMsg" style="color:#888;font-size:.75rem"></p>
       <div class="btn-group">
-        <button class="btn btn-primary" id="retryBtn">↻ RETRY</button>
-        <button class="btn btn-secondary" id="homeBtn">✕ CLOSE</button>
+        <button class="btn btn-primary" id="retryBtn">↻ بازی مجدد</button>
+        <button class="btn btn-secondary" id="homeBtn">✕ بستن</button>
       </div>
     </div>
   </div>
 
   <div class="leaderbox" id="leaderbox">
-    <h3>🏆 LEADERBOARD</h3>
-    <div id="lbRows"><p style="text-align:center;color:#555;font-size:.75rem">Loading...</p></div>
+    <h3>🏆 جدول رده‌بندی برترین‌ها</h3>
+    <div id="lbRows"><p style="text-align:center;color:#555;font-size:.75rem">در حال بارگذاری...</p></div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -299,16 +299,16 @@ async function loadLeaderboard(){
     const top=data.top||[],me=data.me;
     // The record follows the Telegram account across devices.
     if(me&&me.score>best){best=me.score;localStorage.setItem('snakeBest',String(best));bestD.textContent=best}
-    if(!top.length){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">No scores yet</p>'}
+    if(!top.length){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">هنوز رکوردی ثبت نشده است</p>'}
     else{
       lbRows.innerHTML=top.map((e,i)=>lbRow(e,i,myId&&e.user_id===myId)).join('');
       if(me&&!top.some(e=>e.user_id===me.user_id)){
-        const name=escapeHtml((me.user_name||'Player').slice(0,14));
-        lbRows.innerHTML+=`<div class="lb-me">Your rank: <b>#${me.rank}</b> · ${name} · <b>${me.score}</b></div>`;
+        const name=escapeHtml((me.user_name||'بازیکن').slice(0,14));
+        lbRows.innerHTML+=`<div class="lb-me">رتبه شما: <b>#${me.rank}</b> · ${name} · <b>${me.score}</b></div>`;
       }
     }
-    if(!initData)lbRows.innerHTML+='<div class="lb-note">Open the game from Telegram to save your scores.</div>';
-  }catch(e){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">Error loading</p>'}
+    if(!initData)lbRows.innerHTML+='<div class="lb-note">جهت ثبت امتیاز در جدول، بازی را از داخل تلگرام باز کنید.</div>';
+  }catch(e){lbRows.innerHTML='<p style="text-align:center;color:#555;font-size:.75rem;padding:4px">خطا در بارگذاری</p>'}
 }
 
 function escapeHtml(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
@@ -325,7 +325,7 @@ function setDirection(dx,dy){
 document.addEventListener('keydown',e=>{
   if(!running&&gameOverOverlay.classList.contains('hidden')){if(e.key==='Enter'||e.key===' '){startGame();e.preventDefault();return}}
   if(!running)return;
-  if(e.key==='p'||e.key==='P'||e.key==='Escape'){paused=!paused;showToast(paused?'⏸ Paused':'▶ Resumed');e.preventDefault();return}
+  if(e.key==='p'||e.key==='P'||e.key==='Escape'){paused=!paused;showToast(paused?'⏸ متوقف شد':'▶ ادامه بازی');e.preventDefault();return}
   switch(e.key){
     case 'w':case 'W':case 'ArrowUp':setDirection(0,-1);e.preventDefault();break;
     case 's':case 'S':case 'ArrowDown':setDirection(0,1);e.preventDefault();break;

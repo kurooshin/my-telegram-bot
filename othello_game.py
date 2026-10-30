@@ -89,24 +89,24 @@ def lobby_text(chat_id: int) -> str:
     lobby = lobbies.get(chat_id)
     if not lobby:
         return (
-            "⚫⚪ **Othello Match Arena** ⚪⚫\n\n"
-            "• **Black (●)**: _Empty_\n"
-            "• **White (○)**: _Empty_\n\n"
-            "👇 Choose a slot or quick action below:"
+            "⚫⚪ **میدان مسابقه اتللو** ⚪⚫\n\n"
+            "• **سیاه (●)**: _خالی_\n"
+            "• **سفید (○)**: _خالی_\n\n"
+            "👇 جایگاه خود یا یکی از گزینه‌های زیر را انتخاب کنید:"
         )
 
-    b_name = lobby.get('black', {}).get('name') if lobby.get('black') else "_Empty_"
-    w_name = lobby.get('white', {}).get('name') if lobby.get('white') else "_Empty_"
+    b_name = lobby.get('black', {}).get('name') if lobby.get('black') else "_خالی_"
+    w_name = lobby.get('white', {}).get('name') if lobby.get('white') else "_خالی_"
 
-    status = "⏳ Waiting for opponent..."
+    status = "⏳ در انتظار پیوستن حریف..."
     if lobby.get('black') and lobby.get('white'):
-        status = "⚡ **Match Ready! Starting game...**"
+        status = "⚡ **هر دو بازیکن حاضرند! در حال شروع بازی...**"
 
     return (
-        f"⚫⚪ **Othello Match Arena** ⚪⚫\n\n"
-        f"• **Black (●)**: {b_name}\n"
-        f"• **White (○)**: {w_name}\n\n"
-        f"Status: {status}"
+        f"⚫⚪ **میدان مسابقه اتللو** ⚪⚫\n\n"
+        f"• **سیاه (●)**: {b_name}\n"
+        f"• **سفید (○)**: {w_name}\n\n"
+        f"وضعیت: {status}"
     )
 
 
@@ -116,16 +116,16 @@ def lobby_buttons(chat_id: int | None = None) -> list[list[dict]]:
     has_b = bool(lobby and lobby.get('black'))
     has_w = bool(lobby and lobby.get('white'))
 
-    b_btn_text = "⚫ Join Black (●)" if not has_b else "⚫ Black Joined ✅"
-    w_btn_text = "⚪ Join White (○)" if not has_w else "⚪ White Joined ✅"
+    b_btn_text = "⚫ انتخاب مهره سیاه (●)" if not has_b else "⚫ سیاه انتخاب شد ✅"
+    w_btn_text = "⚪ انتخاب مهره سفید (○)" if not has_w else "⚪ سفید انتخاب شد ✅"
 
     return [
         [{"text": b_btn_text, "callback_data": "oth_slot_b"},
          {"text": w_btn_text, "callback_data": "oth_slot_w"}],
-        [{"text": "⚡ Quick Match", "callback_data": "oth_quick"},
-         {"text": "🤖 vs Bot AI", "callback_data": "oth_vs_ai"}],
-        [{"text": "❌ Leave Slot", "callback_data": "oth_leave"},
-         {"text": "🚪 Close Lobby", "callback_data": "oth_close"}]
+        [{"text": "⚡ بازی تصادفی (سریع)", "callback_data": "oth_quick"},
+         {"text": "🤖 بازی با هوش مصنوعی", "callback_data": "oth_vs_ai"}],
+        [{"text": "❌ ترک جایگاه", "callback_data": "oth_leave"},
+         {"text": "🚪 بستن لابی", "callback_data": "oth_close"}]
     ]
 
 
@@ -140,14 +140,14 @@ def lobby_add(chat_id: int, user_id: str, user_name: str) -> tuple[bool, str | N
     """Legacy helper: add player to first available slot in lobby."""
     lobby = get_or_create_lobby(chat_id)
     if (lobby.get('black') and lobby['black']['id'] == user_id) or (lobby.get('white') and lobby['white']['id'] == user_id):
-        return False, "You're already in this lobby!"
+        return False, "شما از قبل در این لابی حضور دارید!"
 
     if not lobby.get('black'):
         lobby['black'] = {'id': user_id, 'name': user_name}
     elif not lobby.get('white'):
         lobby['white'] = {'id': user_id, 'name': user_name}
     else:
-        return False, "Lobby is full!"
+        return False, "ظرفیت لابی تکمیل است!"
 
     # Sync legacy 'players' list
     lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
@@ -164,7 +164,8 @@ def lobby_join_slot(chat_id: int, user_id: str, user_name: str, slot: str) -> tu
         lobby[opp_slot] = None
 
     if lobby.get(slot) and lobby[slot]['id'] != user_id:
-        return False, f"Slot {slot.title()} is already taken!"
+        slot_name = "سیاه" if slot == 'black' else "سفید"
+        return False, f"جایگاه {slot_name} قبلاً انتخاب شده است!"
 
     lobby[slot] = {'id': user_id, 'name': user_name}
     lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
@@ -175,7 +176,7 @@ def lobby_remove(chat_id: int, user_id: str) -> tuple[bool, str | None]:
     """Remove a player from the lobby. Returns (ok, error_message)."""
     lobby = lobbies.get(chat_id)
     if not lobby:
-        return False, "No active lobby."
+        return False, "لابی فعالی وجود ندارد."
 
     removed = False
     if lobby.get('black') and lobby['black']['id'] == user_id:
@@ -187,7 +188,7 @@ def lobby_remove(chat_id: int, user_id: str) -> tuple[bool, str | None]:
 
     lobby['players'] = [p for p in [lobby.get('black'), lobby.get('white')] if p]
     if not removed:
-        return False, "You're not in this lobby."
+        return False, "شما در این لابی حضور ندارید."
     return True, None
 
 
@@ -230,7 +231,7 @@ async def join_quick_match(user_id: str, user_name: str, chat_id: int) -> tuple[
 
 async def create_ai_game(user_id: str, user_name: str, color: str = 'b') -> str:
     """Create a new game against Othello Bot AI."""
-    ai_player = {'id': 'bot_ai', 'name': '🤖 Othello Bot'}
+    ai_player = {'id': 'bot_ai', 'name': '🤖 ربات هوش مصنوعی'}
     if color == 'b':
         return await create_game(user_id, user_name, ai_player['id'], ai_player['name'])
     else:
